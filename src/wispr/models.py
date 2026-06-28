@@ -14,6 +14,21 @@ class TrackMetadata:
 
 
 @dataclass(frozen=True)
+class PipelineInputs:
+    audio_path: Path
+    lyrics_path: Path
+    output_path: Path
+    force: bool = False
+    debug: bool = False
+    separate_vocals: bool = True
+
+
+@dataclass(frozen=True)
+class TranscriptionConfig:
+    model_name: str = "base"
+
+
+@dataclass(frozen=True)
 class TranscriptWord:
     text: str
     start: float

@@ -1,14 +1,35 @@
+import json
 from pathlib import Path
 
-from wispr.lyrics import read_lyrics
+import pytest
+
+from wispr.lyrics import read_lyrics, validate_lyrics_path
 from wispr.pipeline import run
 
 
 def test_lyrics_parsing_preserves_line_text(tmp_path: Path) -> None:
     lyrics = tmp_path / "lyrics.txt"
-    lyrics.write_text(" first line\nsecond  line\n", encoding="utf-8")
+    lyrics.write_text(" first line\n\nsecond  line\n", encoding="utf-8")
 
-    assert read_lyrics(lyrics) == (" first line", "second  line")
+    assert read_lyrics(lyrics) == (" first line", "", "second  line")
+
+
+def test_lyrics_validation_rejects_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        validate_lyrics_path(tmp_path / "missing.txt")
+
+
+def test_lyrics_validation_rejects_directory(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        validate_lyrics_path(tmp_path)
+
+
+def test_lyrics_validation_rejects_empty_file(tmp_path: Path) -> None:
+    lyrics = tmp_path / "lyrics.txt"
+    lyrics.write_text(" \n\t", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        validate_lyrics_path(lyrics)
 
 
 def test_pipeline_writes_lrc_and_debug_artifacts(tmp_path: Path) -> None:
@@ -19,13 +40,19 @@ def test_pipeline_writes_lrc_and_debug_artifacts(tmp_path: Path) -> None:
 
     result = run(audio, lyrics, debug=True)
 
-    assert result.output_path == tmp_path / "song.lrc"
+    assert result.output_path == (tmp_path / "song.lrc").resolve()
     assert result.output_path.read_text(encoding="utf-8").splitlines() == [
         "[00:00.00]hello world",
         "[00:04.00]next line",
     ]
     assert result.warnings
     assert result.debug_dir
+    assert (result.debug_dir / "inputs.json").exists()
     assert (result.debug_dir / "transcript.json").exists()
     assert (result.debug_dir / "alignment.json").exists()
     assert (result.debug_dir / "segments.json").exists()
+
+    inputs = json.loads((result.debug_dir / "inputs.json").read_text(encoding="utf-8"))
+    assert inputs["inputs"]["audio_path"] == str(audio.resolve())
+    assert inputs["inputs"]["lyrics_path"] == str(lyrics.resolve())
+    assert inputs["inputs"]["output_path"] == str((tmp_path / "song.lrc").resolve())

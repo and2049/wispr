@@ -28,7 +28,7 @@ def main(
             debug=debug,
             separate_vocals=separate_vocals,
         )
-    except (FileExistsError, ValueError) as error:
+    except (FileExistsError, FileNotFoundError, ValueError) as error:
         raise typer.BadParameter(str(error)) from error
 
     typer.echo(f"Wrote {result.output_path}")

@@ -5,6 +5,7 @@ description = "Generate line-level LRC files from audio and canonical lyrics."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "mutagen>=1.47",
   "typer>=0.12",
 ]
 

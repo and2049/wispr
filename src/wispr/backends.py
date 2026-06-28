@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
-from wispr.models import AlignedWord, TrackMetadata, TranscriptWord
+from wispr.models import AlignedWord, TrackMetadata, TranscriptionConfig, TranscriptWord
 
 
 class MetadataReader(Protocol):
@@ -39,6 +39,17 @@ class NoOpVocalSeparator:
 class MockTranscriber:
     def transcribe(self, audio_path: Path) -> tuple[TranscriptWord, ...]:
         return ()
+
+
+class WhisperTranscriber:
+    def __init__(self, config: TranscriptionConfig | None = None) -> None:
+        self.config = config or TranscriptionConfig()
+
+    def transcribe(self, audio_path: Path) -> tuple[TranscriptWord, ...]:
+        raise NotImplementedError(
+            "Whisper transcription is intentionally deferred. "
+            "Install and wire a real ML backend in the next milestone."
+        )
 
 
 class MockAligner:
