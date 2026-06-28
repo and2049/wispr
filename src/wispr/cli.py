@@ -40,6 +40,7 @@ def run_command(
     force: Annotated[bool, typer.Option("--force")] = False,
     debug: Annotated[bool, typer.Option("--debug")] = False,
     demucs: Annotated[bool, typer.Option("--demucs")] = False,
+    reuse_artifacts: Annotated[bool, typer.Option("--reuse-artifacts")] = False,
     backend: Annotated[BackendName, typer.Option("--backend")] = BackendName.whisperx,
     model: Annotated[str, typer.Option("--model")] = "base",
     device: Annotated[str, typer.Option("--device")] = "auto",
@@ -64,6 +65,7 @@ def run_command(
             force=force,
             debug=debug,
             demucs_enabled=demucs,
+            reuse_artifacts=reuse_artifacts,
             backends=backends,
         )
     except (FileExistsError, FileNotFoundError, RuntimeError, ValueError) as error:
@@ -78,6 +80,7 @@ def batch_command(
     force: Annotated[bool, typer.Option("--force")] = False,
     debug: Annotated[bool, typer.Option("--debug")] = False,
     demucs: Annotated[bool, typer.Option("--demucs")] = False,
+    reuse_artifacts: Annotated[bool, typer.Option("--reuse-artifacts")] = False,
     backend: Annotated[BackendName, typer.Option("--backend")] = BackendName.whisperx,
     model: Annotated[str, typer.Option("--model")] = "base",
     device: Annotated[str, typer.Option("--device")] = "auto",
@@ -95,6 +98,7 @@ def batch_command(
             batch_size=batch_size,
             language=language,
             demucs=demucs,
+            reuse_artifacts=reuse_artifacts,
             force=force,
             debug=debug,
         )
@@ -113,6 +117,7 @@ def benchmark_command(
     force: Annotated[bool, typer.Option("--force")] = False,
     debug: Annotated[bool, typer.Option("--debug")] = False,
     demucs: Annotated[bool, typer.Option("--demucs")] = False,
+    reuse_artifacts: Annotated[bool, typer.Option("--reuse-artifacts")] = False,
     backend: Annotated[BackendName, typer.Option("--backend")] = BackendName.whisperx,
     model: Annotated[str, typer.Option("--model")] = "base",
     device: Annotated[str, typer.Option("--device")] = "auto",
@@ -134,6 +139,7 @@ def benchmark_command(
                 batch_size=batch_size,
                 language=language,
                 demucs=demucs,
+                reuse_artifacts=reuse_artifacts,
                 force=force,
                 debug=debug,
             )
@@ -152,6 +158,7 @@ def benchmark_command(
             batch_size=batch_size,
             language=language,
             demucs=demucs,
+            reuse_artifacts=reuse_artifacts,
             force=force,
             debug=debug,
         )
@@ -181,6 +188,7 @@ def print_run_result(result) -> None:
         )
     if result.debug_dir:
         typer.echo(f"Processing audio: {result.processing_audio_path}")
+        print_artifact_reuse(getattr(result, "diagnostics", None))
         typer.echo(f"Debug artifacts: {result.debug_dir}")
     remaining_warnings = len(result.warnings) - MAX_WARNING_LINES
     if remaining_warnings > 0:
@@ -201,12 +209,14 @@ def print_batch_result(result: BatchRunResult) -> None:
         f"Batch summary: total={result.total_jobs} ok={result.succeeded} "
         f"failed={result.failed} seconds={result.stage_timings.get('batch_total', 0.0):.2f}"
     )
+    print_batch_artifact_reuse(result)
     typer.echo(f"Batch summary file: {result.summary_path}")
 
 
 def print_benchmark_result(result: BenchmarkRunResult) -> None:
     typer.echo(f"Wrote {result.output_path}")
     typer.echo(f"Benchmark report: {result.report_path}")
+    print_artifact_reuse(getattr(result, "diagnostics", None))
     typer.echo(
         "Benchmark summary: "
         f"seconds={result.total_seconds:.2f} "
@@ -215,7 +225,32 @@ def print_benchmark_result(result: BenchmarkRunResult) -> None:
         f"weak_lines={result.summary.weak_line_count}"
     )
     if result.debug_dir:
+        print_artifact_reuse(getattr(result, "diagnostics", None))
         typer.echo(f"Debug artifacts: {result.debug_dir}")
+
+
+def print_artifact_reuse(diagnostics) -> None:
+    if diagnostics is None:
+        return
+    if not diagnostics.artifact_reuse_enabled:
+        return
+    typer.echo(
+        "Artifact reuse: "
+        f"hits={diagnostics.artifact_hits} misses={diagnostics.artifact_misses}"
+    )
+
+
+def print_batch_artifact_reuse(result: BatchRunResult) -> None:
+    diagnostics = tuple(
+        item_diagnostics
+        for item in result.jobs
+        if (item_diagnostics := getattr(item, "diagnostics", None))
+    )
+    if not any(item.artifact_reuse_enabled for item in diagnostics):
+        return
+    hits = sum(item.artifact_hits for item in diagnostics)
+    misses = sum(item.artifact_misses for item in diagnostics)
+    typer.echo(f"Artifact reuse: hits={hits} misses={misses}")
 
 
 def print_batch_benchmark_result(result: BenchmarkBatchResult) -> None:
@@ -223,5 +258,6 @@ def print_batch_benchmark_result(result: BenchmarkBatchResult) -> None:
         f"Benchmark batch: total={result.batch.total_jobs} ok={result.batch.succeeded} "
         f"failed={result.batch.failed} seconds={result.total_seconds:.2f}"
     )
+    print_batch_artifact_reuse(result.batch)
     typer.echo(f"Batch summary file: {result.batch.summary_path}")
     typer.echo(f"Benchmark report: {result.report_path}")

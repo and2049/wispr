@@ -69,6 +69,7 @@ def run_batch(
     batch_size: int | None = None,
     language: str = "en",
     demucs: bool = False,
+    reuse_artifacts: bool = False,
     force: bool = False,
     debug: bool = False,
     summary_path: Path | None = None,
@@ -93,6 +94,7 @@ def run_batch(
             force=force,
             debug=debug,
             demucs=demucs,
+            reuse_artifacts=reuse_artifacts,
             default_language=language,
             backends_for_language=backends_for_language,
         )
@@ -152,6 +154,7 @@ def run_batch_job(
     force: bool,
     debug: bool,
     demucs: bool,
+    reuse_artifacts: bool,
     default_language: str,
     backends_for_language: Callable[[str], PipelineBackends],
 ) -> BatchJobResult:
@@ -163,6 +166,7 @@ def run_batch_job(
             force=force,
             debug=debug,
             demucs_enabled=demucs,
+            reuse_artifacts=reuse_artifacts,
             metadata_override=job_metadata(job),
             backends=backends_for_language(job.language or default_language),
         )
@@ -176,6 +180,7 @@ def run_batch_job(
         summary=result.summary,
         warnings=result.warnings,
         stage_timings=result.stage_timings or {},
+        diagnostics=result.diagnostics,
     )
 
 

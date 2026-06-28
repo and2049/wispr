@@ -31,6 +31,7 @@ Initial flags:
 - `--compute-type`: WhisperX compute type, defaulting to `auto`
 - `--batch-size`: WhisperX transcription batch size, defaulting by device
 - `--language`: WhisperX language code, defaulting to `en`
+- `--reuse-artifacts`: reuse valid local Demucs vocals and WhisperX transcripts
 
 ## Install
 
@@ -96,6 +97,12 @@ wispr benchmark batch manifest.csv --backend whisperx --device auto --compute-ty
 Single-song benchmark reports default to `<output-stem>.benchmark.json`. Batch
 benchmark reports default to `<manifest-stem>.benchmark.json`.
 
+Artifact reuse is opt-in. When `--reuse-artifacts` is passed, wispr writes local
+cache files beside the output under `<output-stem>.artifacts/` and reuses them only
+when the audio fingerprint and runtime configuration still match. This currently
+reuses Demucs vocals and normalized WhisperX transcripts; alignment still runs each
+time against the supplied canonical lyrics.
+
 The emitted `.lrc` still uses the supplied lyrics file as canonical text. WhisperX only
 provides timing evidence.
 
@@ -121,6 +128,7 @@ For local performance comparisons:
 ```bash
 uv run wispr benchmark inputs/03-giveon-twenties.flac inputs/lyrics.txt --backend whisperx --device auto --compute-type auto --debug --force -o inputs/out/twenties.lrc
 uv run wispr benchmark inputs/03-giveon-twenties.flac inputs/lyrics.txt --backend whisperx --demucs --device auto --compute-type auto --debug --force -o inputs/out/twenties-demucs.lrc
+uv run wispr benchmark inputs/03-giveon-twenties.flac inputs/lyrics.txt --backend whisperx --reuse-artifacts --device auto --compute-type auto --debug --force -o inputs/out/twenties.lrc
 uv run wispr benchmark batch inputs/manifest.csv --backend whisperx --device auto --compute-type auto --debug --force
 ```
 
@@ -138,6 +146,7 @@ The code is organized around:
 - structured warnings for weak alignment
 - batch summaries and stage timings for runtime profiling
 - benchmark reports for repeatable performance comparisons
+- diagnostics reports for coverage, confidence, fallback, and artifact reuse visibility
 
 ## Development
 

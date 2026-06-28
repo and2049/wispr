@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from wispr.lyrics import read_lyrics, validate_lyrics_path
-from wispr.models import AlignedWord
+from wispr.models import AlignedWord, BackendRuntimeConfig, TranscriptWord
 from wispr.pipeline import PipelineBackends, run
 
 
@@ -82,6 +82,10 @@ def test_pipeline_writes_lrc_and_debug_artifacts(tmp_path: Path) -> None:
     assert result.summary.backend == "mock"
     assert result.stage_timings
     assert "transcription" in result.stage_timings
+    assert (result.debug_dir / "diagnostics.json").exists()
+    diagnostics = json.loads((result.debug_dir / "diagnostics.json").read_text(encoding="utf-8"))
+    assert diagnostics["alignment_coverage"] == 1.0
+    assert diagnostics["artifact_reuse_enabled"] is False
 
 
 def test_pipeline_passes_separated_audio_to_transcriber(tmp_path: Path) -> None:
@@ -119,6 +123,115 @@ def test_pipeline_passes_separated_audio_to_transcriber(tmp_path: Path) -> None:
     assert inputs["inputs"]["demucs_enabled"] is True
     assert inputs["processing_audio_path"] == str(separated)
     assert inputs["separator"]["raw"] == {"output_path": str(separated)}
+
+
+def test_pipeline_reuses_cached_demucs_vocals(tmp_path: Path) -> None:
+    audio = tmp_path / "song.wav"
+    lyrics = tmp_path / "lyrics.txt"
+    separated = tmp_path / "generated-vocals.wav"
+    audio.write_bytes(b"mock")
+    lyrics.write_text("hello\n", encoding="utf-8")
+    calls = {"separator": 0}
+
+    class Separator:
+        last_raw_result = None
+
+        def separate(self, audio_path, output_path):
+            calls["separator"] += 1
+            separated.write_bytes(b"vocals")
+            return separated
+
+    backends = PipelineBackends(separator=Separator())
+    first = run(
+        audio,
+        lyrics,
+        debug=True,
+        demucs_enabled=True,
+        reuse_artifacts=True,
+        backends=backends,
+    )
+
+    second = run(
+        audio,
+        lyrics,
+        force=True,
+        debug=True,
+        demucs_enabled=True,
+        reuse_artifacts=True,
+        backends=PipelineBackends(separator=Separator()),
+    )
+
+    assert calls["separator"] == 1
+    assert first.processing_audio_path == tmp_path / "song.artifacts/demucs/vocals.wav"
+    assert second.processing_audio_path == first.processing_audio_path
+    assert second.diagnostics.artifact_hits == 1
+
+
+def test_pipeline_reuses_cached_transcript_but_still_aligns(tmp_path: Path) -> None:
+    audio = tmp_path / "song.wav"
+    lyrics = tmp_path / "lyrics.txt"
+    audio.write_bytes(b"mock")
+    lyrics.write_text("canonical lyric\n", encoding="utf-8")
+    calls = {"transcriber": 0, "aligner": 0}
+
+    class Transcriber:
+        last_raw_result = {"segments": []}
+        skipped_words = 0
+        fallback_words = 0
+
+        def transcribe(self, audio_path):
+            calls["transcriber"] += 1
+            return (
+                TranscriptWord("canonical", start=2.0, end=2.4, confidence=0.9, source="whisperx"),
+                TranscriptWord("lyric", start=2.5, end=2.9, confidence=0.9, source="whisperx"),
+            )
+
+    class FailingTranscriber:
+        def transcribe(self, audio_path):
+            raise AssertionError("transcriber should be skipped")
+
+    class Aligner:
+        skipped_words = 0
+        fallback_words = 0
+
+        def align(self, transcript, lyric_lines, audio_path=None):
+            calls["aligner"] += 1
+            return tuple(
+                AlignedWord(
+                    item.text,
+                    start=item.start,
+                    end=item.end,
+                    confidence=item.confidence,
+                    timestamp_source="whisperx",
+                )
+                for item in transcript
+            )
+
+    runtime = BackendRuntimeConfig(backend="whisperx", device="cpu", compute_type="int8")
+    run(
+        audio,
+        lyrics,
+        debug=True,
+        reuse_artifacts=True,
+        backends=PipelineBackends(transcriber=Transcriber(), aligner=Aligner(), runtime=runtime),
+    )
+    second = run(
+        audio,
+        lyrics,
+        force=True,
+        debug=True,
+        reuse_artifacts=True,
+        backends=PipelineBackends(
+            transcriber=FailingTranscriber(),
+            aligner=Aligner(),
+            runtime=runtime,
+        ),
+    )
+
+    assert calls["transcriber"] == 1
+    assert calls["aligner"] == 2
+    assert second.diagnostics.artifact_hits == 1
+    assert second.output_path.read_text(encoding="utf-8") == "[00:02.00]canonical lyric\n"
 
 
 def test_pipeline_preserves_canonical_lyrics_text(tmp_path: Path) -> None:

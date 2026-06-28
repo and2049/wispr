@@ -1,40 +1,31 @@
 from __future__ import annotations
 
-import unicodedata
-from dataclasses import dataclass
-from difflib import SequenceMatcher
-from functools import lru_cache
-
+from wispr.matching import (
+    MatchingDiagnostics,
+    aligned_word_pieces,
+    lyric_tokens,
+    match_lyrics_to_words,
+)
 from wispr.models import AlignedWord, AlignmentSummary, LyricLine, WisprWarning
 
 WEAK_CONFIDENCE_THRESHOLD = 0.55
-FUZZY_MATCH_THRESHOLD = 0.84
-INSERT_DELETE_COST = 1.0
-MISMATCH_COST = 2.0
-
-
-@dataclass(frozen=True)
-class WordPiece:
-    token: str
-    word_index: int
-    word: AlignedWord
-
-
-@dataclass(frozen=True)
-class CanonicalToken:
-    token: str
-    line_number: int
 
 
 def segment_lines(
     lyrics: tuple[str, ...],
     words: tuple[AlignedWord, ...],
 ) -> tuple[tuple[LyricLine, ...], tuple[WisprWarning, ...]]:
-    canonical = canonical_tokens(lyrics)
-    pieces = aligned_word_pieces(words)
-    matches, fuzzy = align_token_indices(canonical, pieces)
+    lines, warnings, _ = segment_lines_with_diagnostics(lyrics, words)
+    return lines, warnings
+
+
+def segment_lines_with_diagnostics(
+    lyrics: tuple[str, ...],
+    words: tuple[AlignedWord, ...],
+) -> tuple[tuple[LyricLine, ...], tuple[WisprWarning, ...], MatchingDiagnostics]:
+    matching = match_lyrics_to_words(lyrics, words)
     lines = interpolate_unmatched_lines(
-        build_lines(lyrics, words, canonical, pieces, matches, fuzzy),
+        build_lines(lyrics, words, matching.line_matches),
         words,
     )
     warnings = tuple(
@@ -47,7 +38,7 @@ def segment_lines(
         for line in lines
         if line.expected_tokens and line.confidence < WEAK_CONFIDENCE_THRESHOLD
     )
-    return lines, warnings
+    return lines, warnings, matching.diagnostics
 
 
 def summarize_alignment(
@@ -88,151 +79,21 @@ def summarize_alignment(
     )
 
 
-def lyric_tokens(text: str) -> tuple[str, ...]:
-    return tuple(token for token in (normalize_token(part) for part in split_tokens(text)) if token)
-
-
-def split_tokens(text: str) -> tuple[str, ...]:
-    chars: list[str] = []
-    tokens: list[str] = []
-    for char in normalize_apostrophes(text):
-        if is_token_char(char):
-            chars.append(char)
-            continue
-        if chars:
-            tokens.append("".join(chars))
-            chars.clear()
-    if chars:
-        tokens.append("".join(chars))
-    return tuple(tokens)
-
-
-def normalize_apostrophes(text: str) -> str:
-    return text.translate(str.maketrans({"’": "'", "`": "'", "´": "'", "ʼ": "'"}))
-
-
-def is_token_char(char: str) -> bool:
-    category = unicodedata.category(char)
-    return category[0] in {"L", "N"} or char == "'"
-
-
-def normalize_token(token: str) -> str:
-    folded = unicodedata.normalize("NFKD", token.casefold().replace("'", ""))
-    return "".join(char for char in folded if unicodedata.category(char) != "Mn")
-
-
-@lru_cache(maxsize=2048)
-def token_similarity(left: str, right: str) -> float:
-    if left == right:
-        return 1.0
-    return SequenceMatcher(a=left, b=right).ratio()
-
-
-def canonical_tokens(lyrics: tuple[str, ...]) -> tuple[CanonicalToken, ...]:
-    return tuple(
-        CanonicalToken(token=token, line_number=line_number)
-        for line_number, text in enumerate(lyrics, start=1)
-        for token in lyric_tokens(text)
-    )
-
-
-def aligned_word_pieces(words: tuple[AlignedWord, ...]) -> tuple[WordPiece, ...]:
-    pieces: list[WordPiece] = []
-    for word_index, word in enumerate(words):
-        for token in lyric_tokens(word.text):
-            pieces.append(WordPiece(token=token, word_index=word_index, word=word))
-    return tuple(pieces)
-
-
-def align_token_indices(
-    canonical: tuple[CanonicalToken, ...],
-    pieces: tuple[WordPiece, ...],
-) -> tuple[dict[int, int], dict[int, float]]:
-    rows = len(canonical) + 1
-    cols = len(pieces) + 1
-    costs = [[0.0] * cols for _ in range(rows)]
-    steps = [[""] * cols for _ in range(rows)]
-    for row in range(1, rows):
-        costs[row][0] = row * INSERT_DELETE_COST
-        steps[row][0] = "up"
-    for col in range(1, cols):
-        costs[0][col] = col * INSERT_DELETE_COST
-        steps[0][col] = "left"
-    for row in range(1, rows):
-        for col in range(1, cols):
-            similarity = token_similarity(canonical[row - 1].token, pieces[col - 1].token)
-            diagonal = costs[row - 1][col - 1] + substitution_cost(similarity)
-            up = costs[row - 1][col] + INSERT_DELETE_COST
-            left = costs[row][col - 1] + INSERT_DELETE_COST
-            cost, step = min(
-                (diagonal, "diag"),
-                (up, "up"),
-                (left, "left"),
-                key=lambda item: item[0],
-            )
-            costs[row][col] = cost
-            steps[row][col] = step
-
-    matches: dict[int, int] = {}
-    fuzzy: dict[int, float] = {}
-    row = len(canonical)
-    col = len(pieces)
-    while row or col:
-        step = steps[row][col]
-        if step == "diag":
-            similarity = token_similarity(canonical[row - 1].token, pieces[col - 1].token)
-            if similarity >= FUZZY_MATCH_THRESHOLD:
-                matches[row - 1] = col - 1
-                if similarity < 1.0:
-                    fuzzy[row - 1] = similarity
-            row -= 1
-            col -= 1
-            continue
-        if step == "up":
-            row -= 1
-            continue
-        col -= 1
-    return matches, fuzzy
-
-
-def substitution_cost(similarity: float) -> float:
-    if similarity >= FUZZY_MATCH_THRESHOLD:
-        return 1.0 - similarity
-    return MISMATCH_COST
-
-
 def build_lines(
     lyrics: tuple[str, ...],
     words: tuple[AlignedWord, ...],
-    canonical: tuple[CanonicalToken, ...],
-    pieces: tuple[WordPiece, ...],
-    matches: dict[int, int],
-    fuzzy: dict[int, float],
+    line_matches,
 ) -> tuple[LyricLine, ...]:
+    pieces = aligned_word_pieces(words)
     lines: list[LyricLine] = []
-    canonical_index = 0
-    for line_number, text in enumerate(lyrics, start=1):
+    for line_number, (text, match) in enumerate(zip(lyrics, line_matches, strict=True), start=1):
         expected = lyric_tokens(text)
-        indices = range(canonical_index, canonical_index + len(expected))
-        matched_pieces = [matches[index] for index in indices if index in matches]
-        unique_piece_indices = unique(matched_pieces)
+        unique_piece_indices = unique([item.piece_index for item in match.matches])
         line_words = tuple(words[pieces[index].word_index] for index in unique_piece_indices)
-        similarities = [
-            fuzzy.get(index, 1.0)
-            for index in indices
-            if index in matches
-        ]
-        matched_tokens = len(matched_pieces)
-        fuzzy_matches = sum(index in fuzzy for index in indices)
-        canonical_index += len(expected)
+        similarities = [item.similarity for item in match.matches]
+        fuzzy_matches = sum(item.similarity < 1.0 for item in match.matches)
         if not expected:
-            lines.append(
-                LyricLine(
-                    line_number=line_number,
-                    text=text,
-                    confidence=1.0,
-                )
-            )
+            lines.append(LyricLine(line_number=line_number, text=text, confidence=1.0))
             continue
         if not line_words:
             lines.append(
@@ -240,7 +101,7 @@ def build_lines(
                     line_number=line_number,
                     text=text,
                     expected_tokens=len(expected),
-                    matched_tokens=matched_tokens,
+                    matched_tokens=len(match.matches),
                     fuzzy_matches=fuzzy_matches,
                 )
             )
@@ -251,10 +112,15 @@ def build_lines(
                 text=text,
                 words=line_words,
                 start=line_words[0].start,
-                confidence=line_confidence(len(expected), matched_tokens, line_words, similarities),
+                confidence=line_confidence(
+                    len(expected),
+                    len(match.matches),
+                    line_words,
+                    similarities,
+                ),
                 timestamp_source=line_words[0].timestamp_source,
                 expected_tokens=len(expected),
-                matched_tokens=matched_tokens,
+                matched_tokens=len(match.matches),
                 fuzzy_matches=fuzzy_matches,
             )
         )

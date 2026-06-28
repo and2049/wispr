@@ -21,6 +21,51 @@ class PipelineInputs:
     force: bool = False
     debug: bool = False
     demucs_enabled: bool = False
+    reuse_artifacts: bool = False
+
+
+@dataclass(frozen=True)
+class ArtifactReuseConfig:
+    enabled: bool = False
+
+
+@dataclass(frozen=True)
+class ArtifactEntry:
+    kind: str
+    path: Path
+    fingerprint: dict[str, Any]
+    config: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ArtifactManifest:
+    artifacts_dir: Path
+    entries: dict[str, ArtifactEntry] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AccuracyDiagnostics:
+    alignment_coverage: float = 0.0
+    weak_line_ratio: float = 0.0
+    interpolation_ratio: float = 0.0
+    fuzzy_match_ratio: float = 0.0
+    timestamp_sources: dict[str, int] = field(default_factory=dict)
+    average_line_confidence: float = 0.0
+    lowest_line_confidence: float = 0.0
+    skipped_words: int = 0
+    fallback_words: int = 0
+    quality_warnings: tuple[str, ...] = ()
+    artifact_reuse_enabled: bool = False
+    artifact_hits: int = 0
+    artifact_misses: int = 0
+    artifact_invalidations: tuple[str, ...] = ()
+    artifact_paths: dict[str, Path] = field(default_factory=dict)
+    matching_strategy: str = "structured"
+    matching_fallback_used: bool = False
+    matching_anchor_count: int = 0
+    repeated_line_count: int = 0
+    ambiguous_line_count: int = 0
+    line_match_scores: dict[int, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -85,6 +130,7 @@ class BatchJobResult:
     warnings: tuple[WisprWarning, ...] = ()
     error_message: str | None = None
     stage_timings: dict[str, float] = field(default_factory=dict)
+    diagnostics: AccuracyDiagnostics | None = None
 
 
 @dataclass(frozen=True)
@@ -109,6 +155,7 @@ class BenchmarkRunResult:
     warnings: tuple[WisprWarning, ...]
     stage_timings: dict[str, float]
     total_seconds: float
+    diagnostics: AccuracyDiagnostics = field(default_factory=AccuracyDiagnostics)
 
 
 @dataclass(frozen=True)
@@ -119,6 +166,7 @@ class BenchmarkBatchResult:
     batch: BatchRunResult
     stage_timings: dict[str, float]
     total_seconds: float
+    diagnostics: dict[str, AccuracyDiagnostics] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

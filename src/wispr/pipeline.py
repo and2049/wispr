@@ -2,11 +2,24 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
 from typing import TypeVar
 
+from wispr.artifacts import (
+    copy_artifact,
+    demucs_artifact_path,
+    demucs_config,
+    file_fingerprint,
+    load_manifest,
+    matching_entry,
+    read_transcript_artifact,
+    record_entry,
+    transcript_artifact_path,
+    transcript_config,
+    write_transcript_artifact,
+)
 from wispr.audio import ensure_output_writable, resolve_output_path, validate_audio_path
 from wispr.backends import (
     Aligner,
@@ -17,12 +30,17 @@ from wispr.backends import (
     Transcriber,
     VocalSeparator,
 )
+from wispr.diagnostics import build_diagnostics
 from wispr.lrc import serialize_lrc
 from wispr.lyrics import read_lyrics, validate_lyrics_path
+from wispr.matching import MatchingDiagnostics
 from wispr.metadata import MutagenMetadataReader
 from wispr.models import (
+    AccuracyDiagnostics,
     AlignedWord,
     AlignmentSummary,
+    ArtifactEntry,
+    ArtifactManifest,
     BackendRuntimeConfig,
     LrcDocument,
     PipelineInputs,
@@ -31,7 +49,7 @@ from wispr.models import (
     WisprWarning,
     to_jsonable,
 )
-from wispr.segment import segment_lines, summarize_alignment
+from wispr.segment import segment_lines_with_diagnostics, summarize_alignment
 
 T = TypeVar("T")
 
@@ -44,6 +62,7 @@ class PipelineResult:
     debug_dir: Path | None = None
     processing_audio_path: Path | None = None
     stage_timings: dict[str, float] | None = None
+    diagnostics: AccuracyDiagnostics = field(default_factory=AccuracyDiagnostics)
 
 
 @dataclass(frozen=True)
@@ -63,6 +82,7 @@ def run(
     force: bool = False,
     debug: bool = False,
     demucs_enabled: bool = False,
+    reuse_artifacts: bool = False,
     metadata_override: TrackMetadata | None = None,
     backends: PipelineBackends | None = None,
 ) -> PipelineResult:
@@ -75,7 +95,12 @@ def run(
         force=force,
         debug=debug,
         demucs_enabled=demucs_enabled,
+        reuse_artifacts=reuse_artifacts,
     )
+    artifact_manifest = load_manifest(inputs.output_path)
+    artifact_hits: list[str] = []
+    artifact_misses: list[str] = []
+    artifact_invalidations: list[str] = []
     lyrics = timed(timings, "lyrics", lambda: read_lyrics(inputs.lyrics_path))
     metadata = timed(
         timings,
@@ -83,15 +108,32 @@ def run(
         lambda: read_metadata(backends.metadata, inputs.audio_path),
     )
     metadata = apply_metadata_override(metadata, metadata_override)
-    processing_audio = timed(
+    processing_audio, artifact_manifest = timed(
         timings,
         "separation",
-        lambda: prepare_audio(backends.separator, inputs),
+        lambda: prepare_audio(
+            backends.separator,
+            inputs,
+            backends.runtime,
+            artifact_manifest,
+            artifact_hits,
+            artifact_misses,
+            artifact_invalidations,
+        ),
     )
-    transcript = timed(
+    transcript, artifact_manifest = timed(
         timings,
         "transcription",
-        lambda: transcribe_audio(backends.transcriber, processing_audio),
+        lambda: transcribe_audio(
+            backends.transcriber,
+            processing_audio,
+            inputs,
+            backends.runtime,
+            artifact_manifest,
+            artifact_hits,
+            artifact_misses,
+            artifact_invalidations,
+        ),
     )
     ensure_transcript_quality(backends.runtime.backend, transcript)
     alignment = timed(
@@ -100,7 +142,7 @@ def run(
         lambda: align_lyrics(backends.aligner, transcript, lyrics, processing_audio),
     )
     ensure_alignment_quality(backends.runtime.backend, alignment)
-    lines, warnings, summary = timed(
+    lines, warnings, summary, matching = timed(
         timings,
         "segmentation",
         lambda: segment_and_summarize(lyrics, alignment, backends),
@@ -110,6 +152,20 @@ def run(
         timings,
         "output",
         lambda: write_output(inputs.output_path, LrcDocument(metadata=metadata, lines=lines)),
+    )
+    diagnostics = build_diagnostics(
+        summary=summary,
+        lines=lines,
+        warnings=warnings,
+        fallback_words=(
+            fallback_word_count(backends.transcriber) + fallback_word_count(backends.aligner)
+        ),
+        reuse_enabled=inputs.reuse_artifacts,
+        artifact_hits=tuple(artifact_hits),
+        artifact_misses=tuple(artifact_misses),
+        artifact_invalidations=tuple(artifact_invalidations),
+        artifact_paths=artifact_paths(inputs.output_path, backends.runtime),
+        matching=matching,
     )
     debug_dir = (
         write_debug(
@@ -121,6 +177,8 @@ def run(
             alignment,
             lines,
             summary,
+            matching,
+            diagnostics,
             backends,
             timings,
         )
@@ -134,6 +192,7 @@ def run(
         debug_dir=debug_dir,
         processing_audio_path=processing_audio,
         stage_timings=timings,
+        diagnostics=diagnostics,
     )
 
 
@@ -145,6 +204,7 @@ def prepare_inputs(
     force: bool,
     debug: bool,
     demucs_enabled: bool,
+    reuse_artifacts: bool,
 ) -> PipelineInputs:
     audio_path = validate_audio_path(audio_path)
     lyrics_path = validate_lyrics_path(lyrics_path)
@@ -157,6 +217,7 @@ def prepare_inputs(
         force=force,
         debug=debug,
         demucs_enabled=demucs_enabled,
+        reuse_artifacts=reuse_artifacts,
     )
 
 
@@ -178,14 +239,105 @@ def apply_metadata_override(
     )
 
 
-def prepare_audio(separator: VocalSeparator, inputs: PipelineInputs) -> Path:
+def prepare_audio(
+    separator: VocalSeparator,
+    inputs: PipelineInputs,
+    runtime: BackendRuntimeConfig,
+    manifest: ArtifactManifest,
+    hits: list[str],
+    misses: list[str],
+    invalidations: list[str],
+) -> tuple[Path, ArtifactManifest]:
     if not inputs.demucs_enabled:
-        return inputs.audio_path
-    return separator.separate(inputs.audio_path, inputs.output_path)
+        return inputs.audio_path, manifest
+    fingerprint = file_fingerprint(inputs.audio_path)
+    config = demucs_config(runtime)
+    destination = demucs_artifact_path(inputs.output_path)
+    if inputs.reuse_artifacts:
+        entry, reason = matching_entry(
+            manifest,
+            "demucs",
+            fingerprint=fingerprint,
+            config=config,
+        )
+        if entry:
+            hits.append("demucs")
+            return entry.path, manifest
+        misses.append("demucs")
+        if reason:
+            invalidations.append(reason)
+    separated = separator.separate(inputs.audio_path, inputs.output_path)
+    if not inputs.reuse_artifacts:
+        return separated, manifest
+    cached = copy_artifact(separated, destination)
+    manifest = record_entry(
+        inputs.output_path,
+        manifest,
+        ArtifactEntry(kind="demucs", path=cached, fingerprint=fingerprint, config=config),
+    )
+    return cached, manifest
 
 
-def transcribe_audio(transcriber: Transcriber, audio_path: Path) -> tuple[TranscriptWord, ...]:
-    return transcriber.transcribe(audio_path)
+def transcribe_audio(
+    transcriber: Transcriber,
+    audio_path: Path,
+    inputs: PipelineInputs,
+    runtime: BackendRuntimeConfig,
+    manifest: ArtifactManifest,
+    hits: list[str],
+    misses: list[str],
+    invalidations: list[str],
+) -> tuple[tuple[TranscriptWord, ...], ArtifactManifest]:
+    can_reuse = inputs.reuse_artifacts and runtime.backend == "whisperx"
+    if can_reuse:
+        fingerprint = file_fingerprint(audio_path)
+        config = transcript_config(runtime)
+        destination = transcript_artifact_path(inputs.output_path)
+        entry, reason = matching_entry(
+            manifest,
+            "transcript",
+            fingerprint=fingerprint,
+            config=config,
+        )
+        if entry:
+            try:
+                transcript, skipped, fallback, raw = read_transcript_artifact(entry.path)
+            except (KeyError, OSError, TypeError, ValueError) as error:
+                misses.append("transcript")
+                invalidations.append(f"transcript: unreadable artifact ({error})")
+            else:
+                hits.append("transcript")
+                set_backend_debug(transcriber, raw, skipped, fallback)
+                return transcript, manifest
+        else:
+            misses.append("transcript")
+            if reason:
+                invalidations.append(reason)
+    transcript = transcriber.transcribe(audio_path)
+    if not can_reuse:
+        return transcript, manifest
+    fingerprint = file_fingerprint(audio_path)
+    config = transcript_config(runtime)
+    destination = transcript_artifact_path(inputs.output_path)
+    write_transcript_artifact(
+        destination,
+        transcript,
+        raw=getattr(transcriber, "last_raw_result", None),
+        skipped_words=skipped_word_count(transcriber),
+        fallback_words=fallback_word_count(transcriber),
+    )
+    manifest = record_entry(
+        inputs.output_path,
+        manifest,
+        ArtifactEntry(kind="transcript", path=destination, fingerprint=fingerprint, config=config),
+    )
+    return transcript, manifest
+
+
+def set_backend_debug(backend: object, raw: object, skipped: int, fallback: int) -> None:
+    backend.last_raw_result = raw
+    backend.skipped_words = skipped
+    backend.fallback_words = fallback
 
 
 def align_lyrics(
@@ -201,8 +353,8 @@ def segment_and_summarize(
     lyrics: tuple[str, ...],
     alignment: tuple[AlignedWord, ...],
     backends: PipelineBackends,
-) -> tuple[object, tuple[WisprWarning, ...], AlignmentSummary]:
-    lines, warnings = segment_lines(lyrics, alignment)
+) -> tuple[object, tuple[WisprWarning, ...], AlignmentSummary, MatchingDiagnostics]:
+    lines, warnings, matching = segment_lines_with_diagnostics(lyrics, alignment)
     summary = summarize_alignment(
         lyrics,
         alignment,
@@ -212,7 +364,7 @@ def segment_and_summarize(
         skipped_words=skipped_word_count(backends.transcriber)
         + skipped_word_count(backends.aligner),
     )
-    return lines, warnings, summary
+    return lines, warnings, summary, matching
 
 
 def write_output(output_path: Path, document: LrcDocument) -> None:
@@ -228,6 +380,8 @@ def write_debug(
     alignment: tuple[AlignedWord, ...],
     segments: object,
     summary: AlignmentSummary,
+    matching: MatchingDiagnostics,
+    diagnostics: AccuracyDiagnostics,
     backends: PipelineBackends,
     timings: dict[str, float],
 ) -> Path:
@@ -245,7 +399,8 @@ def write_debug(
         },
         "transcript.json": debug_payload(transcript, backends.transcriber),
         "alignment.json": debug_payload(alignment, backends.aligner),
-        "segments.json": {"segments": segments, "summary": summary},
+        "segments.json": {"segments": segments, "summary": summary, "matching": matching},
+        "diagnostics.json": diagnostics,
     }
     for name, value in artifacts.items():
         (debug_dir / name).write_text(
@@ -283,6 +438,16 @@ def skipped_word_count(backend: object) -> int:
 
 def fallback_word_count(backend: object) -> int:
     return int(getattr(backend, "fallback_words", 0))
+
+
+def artifact_paths(output_path: Path, runtime: BackendRuntimeConfig) -> dict[str, Path]:
+    artifact_dir = output_path.with_suffix("").with_name(f"{output_path.stem}.artifacts")
+    paths = {"manifest": artifact_dir / "manifest.json"}
+    if runtime.demucs_enabled:
+        paths["demucs"] = demucs_artifact_path(output_path)
+    if runtime.backend == "whisperx":
+        paths["transcript"] = transcript_artifact_path(output_path)
+    return paths
 
 
 def ensure_transcript_quality(backend: str, transcript: tuple[TranscriptWord, ...]) -> None:

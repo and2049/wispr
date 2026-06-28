@@ -37,6 +37,7 @@ def run_benchmark(
     batch_size: int | None = None,
     language: str = "en",
     demucs: bool = False,
+    reuse_artifacts: bool = False,
     force: bool = False,
     debug: bool = False,
     backends: PipelineBackends | None = None,
@@ -58,6 +59,7 @@ def run_benchmark(
         force=force,
         debug=debug,
         demucs_enabled=demucs,
+        reuse_artifacts=reuse_artifacts,
         backends=backends,
     )
     total_seconds = perf_counter() - start
@@ -72,6 +74,7 @@ def run_benchmark(
             batch_size=batch_size,
             language=language,
             demucs=demucs,
+            reuse_artifacts=reuse_artifacts,
             force=force,
             debug=debug,
         ),
@@ -82,6 +85,7 @@ def run_benchmark(
         warnings=result.warnings,
         stage_timings={**(result.stage_timings or {}), "benchmark_total": total_seconds},
         total_seconds=total_seconds,
+        diagnostics=result.diagnostics,
     )
     write_report(report.report_path, report)
     return report
@@ -98,6 +102,7 @@ def run_batch_benchmark(
     batch_size: int | None = None,
     language: str = "en",
     demucs: bool = False,
+    reuse_artifacts: bool = False,
     force: bool = False,
     debug: bool = False,
 ) -> BenchmarkBatchResult:
@@ -112,6 +117,7 @@ def run_batch_benchmark(
         batch_size=batch_size,
         language=language,
         demucs=demucs,
+        reuse_artifacts=reuse_artifacts,
         force=force,
         debug=debug,
         backends_for_language=capturing_backend_factory(
@@ -137,6 +143,7 @@ def run_batch_benchmark(
             batch_size=batch_size,
             language=language,
             demucs=demucs,
+            reuse_artifacts=reuse_artifacts,
             force=force,
             debug=debug,
         ),
@@ -144,6 +151,11 @@ def run_batch_benchmark(
         batch=batch,
         stage_timings={**batch.stage_timings, "benchmark_total": total_seconds},
         total_seconds=total_seconds,
+        diagnostics={
+            str(item.job.row_number): item.diagnostics
+            for item in batch.jobs
+            if item.diagnostics is not None
+        },
     )
     write_report(report.report_path, report)
     return report
@@ -193,6 +205,7 @@ def command_config(
     batch_size: int | None,
     language: str,
     demucs: bool,
+    reuse_artifacts: bool,
     force: bool,
     debug: bool,
 ) -> dict[str, object]:
@@ -204,6 +217,7 @@ def command_config(
         "batch_size": batch_size,
         "language": language,
         "demucs": demucs,
+        "reuse_artifacts": reuse_artifacts,
         "force": force,
         "debug": debug,
     }

@@ -29,6 +29,8 @@ def test_benchmark_mock_writes_lrc_and_report(tmp_path: Path) -> None:
     assert report["runtime"]["backend"] == "mock"
     assert report["command"]["backend"] == "mock"
     assert report["summary"]["backend"] == "mock"
+    assert report["diagnostics"]["alignment_coverage"] == 1.0
+    assert report["diagnostics"]["artifact_reuse_enabled"] is False
     assert report["output_path"] == str(tmp_path / "song.lrc")
 
 
@@ -66,6 +68,7 @@ def test_batch_benchmark_mock_writes_outputs_and_report(tmp_path: Path) -> None:
     assert "benchmark_total" in result.stage_timings
     report = json.loads(result.report_path.read_text(encoding="utf-8"))
     assert report["batch"]["succeeded"] == 2
+    assert report["batch"]["jobs"][0]["diagnostics"]["alignment_coverage"] == 1.0
     assert report["runtimes"]["en"]["backend"] == "mock"
 
 

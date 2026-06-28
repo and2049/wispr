@@ -58,6 +58,7 @@ def test_cli_backend_whisperx_wires_backend_factory(monkeypatch, tmp_path: Path)
     def fake_run(audio_path, lyrics_path, **kwargs):
         calls["run_backends"] = kwargs["backends"]
         calls["demucs_enabled"] = kwargs["demucs_enabled"]
+        calls["reuse_artifacts"] = kwargs["reuse_artifacts"]
         output.write_text("[00:00.00]hello\n", encoding="utf-8")
         return SimpleNamespace(
             output_path=output,
@@ -93,6 +94,7 @@ def test_cli_backend_whisperx_wires_backend_factory(monkeypatch, tmp_path: Path)
             "--language",
             "en",
             "--demucs",
+            "--reuse-artifacts",
         ],
     )
 
@@ -105,6 +107,7 @@ def test_cli_backend_whisperx_wires_backend_factory(monkeypatch, tmp_path: Path)
     assert calls["language"] == "en"
     assert calls["demucs"] is True
     assert calls["demucs_enabled"] is True
+    assert calls["reuse_artifacts"] is True
 
 
 def test_cli_truncates_warning_output(monkeypatch, tmp_path: Path) -> None:
@@ -246,6 +249,7 @@ def test_cli_batch_wires_batch_runner(monkeypatch, tmp_path: Path) -> None:
             "--language",
             "en",
             "--debug",
+            "--reuse-artifacts",
             "--force",
         ],
     )
@@ -258,6 +262,7 @@ def test_cli_batch_wires_batch_runner(monkeypatch, tmp_path: Path) -> None:
     assert calls["compute_type"] == "auto"
     assert calls["batch_size"] == 16
     assert calls["debug"] is True
+    assert calls["reuse_artifacts"] is True
     assert calls["force"] is True
     assert "Batch summary" in result.stdout
 
@@ -349,6 +354,7 @@ def test_cli_benchmark_whisperx_wires_runtime_flags(monkeypatch, tmp_path: Path)
             "--language",
             "es",
             "--demucs",
+            "--reuse-artifacts",
             "--debug",
             "--force",
             "-o",
@@ -366,6 +372,7 @@ def test_cli_benchmark_whisperx_wires_runtime_flags(monkeypatch, tmp_path: Path)
     assert calls["batch_size"] == 16
     assert calls["language"] == "es"
     assert calls["demucs"] is True
+    assert calls["reuse_artifacts"] is True
     assert calls["debug"] is True
     assert calls["force"] is True
     assert calls["output_path"] == output
@@ -415,6 +422,7 @@ def test_cli_batch_benchmark_wires_runner(monkeypatch, tmp_path: Path) -> None:
             "auto",
             "--batch-size",
             "8",
+            "--reuse-artifacts",
             "--report",
             str(report),
         ],
@@ -424,5 +432,6 @@ def test_cli_batch_benchmark_wires_runner(monkeypatch, tmp_path: Path) -> None:
     assert calls["manifest_path"] == manifest
     assert calls["backend"].value == "whisperx"
     assert calls["batch_size"] == 8
+    assert calls["reuse_artifacts"] is True
     assert calls["report_path"] == report
     assert "Benchmark batch" in result.stdout

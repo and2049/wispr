@@ -8,3 +8,4 @@ inputs/
 *.benchmark.json
 *.summary.json
 *.debug/
+*.artifacts/
