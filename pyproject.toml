@@ -1,10 +1,11 @@
 [project]
 name = "wispr-lrc"
-version = "0.1.0"
+version = "0.1.1"
 description = "Generate line-level LRC files from audio and canonical lyrics."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "click>=8.1",
   "mutagen>=1.47",
   "typer>=0.12",
 ]

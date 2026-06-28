@@ -3350,9 +3350,10 @@ wheels = [
 
 [[package]]
 name = "wispr-lrc"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "mutagen" },
     { name = "typer" },
 ]
@@ -3373,6 +3374,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.1" },
     { name = "demucs", marker = "extra == 'separation'", specifier = ">=4" },
     { name = "mutagen", specifier = ">=1.47" },
     { name = "typer", specifier = ">=0.12" },
