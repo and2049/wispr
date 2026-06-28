@@ -20,7 +20,7 @@ class PipelineInputs:
     output_path: Path
     force: bool = False
     debug: bool = False
-    separate_vocals: bool = True
+    demucs_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -31,6 +31,9 @@ class BackendRuntimeConfig:
     compute_type: str = "int8"
     language: str = "en"
     vad_method: str = "silero"
+    demucs_enabled: bool = False
+    separator_backend: str = "none"
+    separator_model: str | None = None
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,12 @@ class AlignmentConfig:
     device: str = "cpu"
     language: str = "en"
     return_char_alignments: bool = False
+
+
+@dataclass(frozen=True)
+class DemucsConfig:
+    model_name: str = "htdemucs"
+    device: str = "cpu"
 
 
 @dataclass(frozen=True)

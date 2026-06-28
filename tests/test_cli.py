@@ -36,21 +36,25 @@ def test_cli_backend_whisperx_wires_backend_factory(monkeypatch, tmp_path: Path)
         device: str,
         compute_type: str,
         language: str,
+        demucs: bool,
     ):
         calls["backend"] = backend
         calls["model_name"] = model_name
         calls["device"] = device
         calls["compute_type"] = compute_type
         calls["language"] = language
+        calls["demucs"] = demucs
         return None
 
     def fake_run(audio_path, lyrics_path, **kwargs):
         calls["run_backends"] = kwargs["backends"]
+        calls["demucs_enabled"] = kwargs["demucs_enabled"]
         output.write_text("[00:00.00]hello\n", encoding="utf-8")
         return SimpleNamespace(
             output_path=output,
             warnings=(),
             debug_dir=None,
+            processing_audio_path=audio,
             summary=AlignmentSummary(
                 total_lyric_words=1,
                 aligned_words=1,
@@ -79,6 +83,7 @@ def test_cli_backend_whisperx_wires_backend_factory(monkeypatch, tmp_path: Path)
             "int8",
             "--language",
             "en",
+            "--demucs",
         ],
     )
 
@@ -88,6 +93,8 @@ def test_cli_backend_whisperx_wires_backend_factory(monkeypatch, tmp_path: Path)
     assert calls["device"] == "cpu"
     assert calls["compute_type"] == "int8"
     assert calls["language"] == "en"
+    assert calls["demucs"] is True
+    assert calls["demucs_enabled"] is True
 
 
 def test_cli_truncates_warning_output(monkeypatch, tmp_path: Path) -> None:
@@ -102,6 +109,7 @@ def test_cli_truncates_warning_output(monkeypatch, tmp_path: Path) -> None:
         return SimpleNamespace(
             output_path=output,
             debug_dir=tmp_path / "song.debug",
+            processing_audio_path=audio,
             warnings=tuple(
                 WisprWarning(
                     line_number=index,
@@ -145,6 +153,7 @@ def test_cli_prints_quality_warning(monkeypatch, tmp_path: Path) -> None:
         return SimpleNamespace(
             output_path=output,
             debug_dir=None,
+            processing_audio_path=audio,
             warnings=(),
             summary=AlignmentSummary(
                 total_lyric_words=4,
@@ -164,3 +173,15 @@ def test_cli_prints_quality_warning(monkeypatch, tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "Low lyric coverage" in result.stderr
+
+
+def test_cli_demucs_with_mock_backend_fails(tmp_path: Path) -> None:
+    audio = tmp_path / "song.wav"
+    lyrics = tmp_path / "lyrics.txt"
+    audio.write_bytes(b"mock")
+    lyrics.write_text("hello\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, [str(audio), str(lyrics), "--demucs"])
+
+    assert result.exit_code != 0
+    assert "--demucs requires --backend whisperx" in result.output

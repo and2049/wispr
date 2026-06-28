@@ -37,6 +37,7 @@ class PipelineResult:
     warnings: tuple[WisprWarning, ...]
     summary: AlignmentSummary
     debug_dir: Path | None = None
+    processing_audio_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,7 @@ def run(
     output_path: Path | None = None,
     force: bool = False,
     debug: bool = False,
-    separate_vocals: bool = True,
+    demucs_enabled: bool = False,
     backends: PipelineBackends | None = None,
 ) -> PipelineResult:
     backends = backends or PipelineBackends()
@@ -65,7 +66,7 @@ def run(
         output_path=output_path,
         force=force,
         debug=debug,
-        separate_vocals=separate_vocals,
+        demucs_enabled=demucs_enabled,
     )
     lyrics = read_lyrics(inputs.lyrics_path)
     metadata = read_metadata(backends.metadata, inputs.audio_path)
@@ -91,6 +92,7 @@ def run(
             inputs,
             backends.runtime,
             metadata,
+            processing_audio,
             transcript,
             alignment,
             lines,
@@ -105,6 +107,7 @@ def run(
         warnings=warnings,
         summary=summary,
         debug_dir=debug_dir,
+        processing_audio_path=processing_audio,
     )
 
 
@@ -115,7 +118,7 @@ def prepare_inputs(
     output_path: Path | None,
     force: bool,
     debug: bool,
-    separate_vocals: bool,
+    demucs_enabled: bool,
 ) -> PipelineInputs:
     audio_path = validate_audio_path(audio_path)
     lyrics_path = validate_lyrics_path(lyrics_path)
@@ -127,7 +130,7 @@ def prepare_inputs(
         output_path=output_path,
         force=force,
         debug=debug,
-        separate_vocals=separate_vocals,
+        demucs_enabled=demucs_enabled,
     )
 
 
@@ -136,7 +139,9 @@ def read_metadata(reader: MetadataReader, audio_path: Path) -> TrackMetadata:
 
 
 def prepare_audio(separator: VocalSeparator, inputs: PipelineInputs) -> Path:
-    return separator.separate(inputs.audio_path) if inputs.separate_vocals else inputs.audio_path
+    if not inputs.demucs_enabled:
+        return inputs.audio_path
+    return separator.separate(inputs.audio_path, inputs.output_path)
 
 
 def transcribe_audio(transcriber: Transcriber, audio_path: Path) -> tuple[TranscriptWord, ...]:
@@ -160,6 +165,7 @@ def write_debug(
     inputs: PipelineInputs,
     runtime: BackendRuntimeConfig,
     metadata: TrackMetadata,
+    processing_audio: Path,
     transcript: tuple[TranscriptWord, ...],
     alignment: tuple[AlignedWord, ...],
     segments: object,
@@ -169,7 +175,14 @@ def write_debug(
     debug_dir = inputs.output_path.with_suffix("").with_name(f"{inputs.output_path.stem}.debug")
     debug_dir.mkdir(parents=True, exist_ok=True)
     artifacts = {
-        "inputs.json": {"inputs": inputs, "runtime": runtime, "metadata": metadata},
+        "inputs.json": {
+            "inputs": inputs,
+            "runtime": runtime,
+            "metadata": metadata,
+            "source_audio_path": inputs.audio_path,
+            "processing_audio_path": processing_audio,
+            "separator": debug_payload(processing_audio, backends.separator),
+        },
         "transcript.json": debug_payload(transcript, backends.transcriber),
         "alignment.json": debug_payload(alignment, backends.aligner),
         "segments.json": {"segments": segments, "summary": summary},

@@ -13,6 +13,9 @@ dependencies = [
 ml = [
   "whisperx>=3.0",
 ]
+separation = [
+  "demucs>=4",
+]
 
 [project.scripts]
 wispr = "wispr.cli:app"

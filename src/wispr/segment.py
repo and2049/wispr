@@ -164,7 +164,12 @@ def align_token_indices(
             diagonal = costs[row - 1][col - 1] + substitution_cost(similarity)
             up = costs[row - 1][col] + INSERT_DELETE_COST
             left = costs[row][col - 1] + INSERT_DELETE_COST
-            cost, step = min((diagonal, "diag"), (up, "up"), (left, "left"), key=lambda item: item[0])
+            cost, step = min(
+                (diagonal, "diag"),
+                (up, "up"),
+                (left, "left"),
+                key=lambda item: item[0],
+            )
             costs[row][col] = cost
             steps[row][col] = step
 
@@ -305,9 +310,17 @@ def interpolate_unmatched_lines(
     return tuple(updated)
 
 
-def fill_line_starts(lines: list[LyricLine], start: int, end: int, words: tuple[AlignedWord, ...]) -> None:
+def fill_line_starts(
+    lines: list[LyricLine],
+    start: int,
+    end: int,
+    words: tuple[AlignedWord, ...],
+) -> None:
     count = end - start
-    previous = next((lines[index] for index in range(start - 1, -1, -1) if lines[index].words), None)
+    previous = next(
+        (lines[index] for index in range(start - 1, -1, -1) if lines[index].words),
+        None,
+    )
     following = next((lines[index] for index in range(end, len(lines)) if lines[index].words), None)
     values = interpolated_values(
         previous.start if previous else None,
@@ -315,7 +328,13 @@ def fill_line_starts(lines: list[LyricLine], start: int, end: int, words: tuple[
         count,
         words[0].start if words else None,
     )
-    source = previous.timestamp_source if previous else following.timestamp_source if following else "interpolated"
+    source = (
+        previous.timestamp_source
+        if previous
+        else following.timestamp_source
+        if following
+        else "interpolated"
+    )
     for offset, value in enumerate(values):
         line = lines[start + offset]
         lines[start + offset] = LyricLine(

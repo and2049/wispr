@@ -19,7 +19,9 @@ from wispr.models import (
 
 INSTALL_MESSAGE = "WhisperX backend requires optional ML dependencies. Install with: wispr[ml]"
 FFMPEG_MESSAGE = "WhisperX backend requires ffmpeg on PATH."
-TORCHCODEC_WARNING = r"\s*torchcodec is not installed correctly so built-in audio decoding will fail\."
+TORCHCODEC_WARNING = (
+    r"\s*torchcodec is not installed correctly so built-in audio decoding will fail\."
+)
 PART_RE = re.compile(r"\S+")
 
 
@@ -190,7 +192,9 @@ def aligned_words_with_skips(
                 start=start,
                 end=end,
                 confidence=word_confidence(word),
-                timestamp_source="whisperx" if "start" in word and "end" in word else "whisperx-segment",
+                timestamp_source=(
+                    "whisperx" if "start" in word and "end" in word else "whisperx-segment"
+                ),
             )
         )
     return tuple(words), skipped, fallback

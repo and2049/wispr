@@ -19,7 +19,7 @@ def main(
     output: Annotated[Path | None, typer.Option("-o", "--output")] = None,
     force: Annotated[bool, typer.Option("--force")] = False,
     debug: Annotated[bool, typer.Option("--debug")] = False,
-    separate_vocals: Annotated[bool, typer.Option("--separate-vocals/--no-separate-vocals")] = True,
+    demucs: Annotated[bool, typer.Option("--demucs")] = False,
     backend: Annotated[BackendName, typer.Option("--backend")] = BackendName.mock,
     model: Annotated[str, typer.Option("--model")] = "base",
     device: Annotated[str, typer.Option("--device")] = "cpu",
@@ -33,6 +33,7 @@ def main(
             device=device,
             compute_type=compute_type,
             language=language,
+            demucs=demucs,
         )
         result = run(
             audio,
@@ -40,7 +41,7 @@ def main(
             output_path=output,
             force=force,
             debug=debug,
-            separate_vocals=separate_vocals,
+            demucs_enabled=demucs,
             backends=backends,
         )
     except (FileExistsError, FileNotFoundError, RuntimeError, ValueError) as error:
@@ -64,6 +65,7 @@ def main(
             err=True,
         )
     if result.debug_dir:
+        typer.echo(f"Processing audio: {result.processing_audio_path}")
         typer.echo(f"Debug artifacts: {result.debug_dir}")
     remaining_warnings = len(result.warnings) - MAX_WARNING_LINES
     if remaining_warnings > 0:

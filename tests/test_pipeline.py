@@ -57,6 +57,10 @@ def test_pipeline_writes_lrc_and_debug_artifacts(tmp_path: Path) -> None:
     assert inputs["inputs"]["audio_path"] == str(audio.resolve())
     assert inputs["inputs"]["lyrics_path"] == str(lyrics.resolve())
     assert inputs["inputs"]["output_path"] == str((tmp_path / "song.lrc").resolve())
+    assert inputs["inputs"]["demucs_enabled"] is False
+    assert inputs["source_audio_path"] == str(audio.resolve())
+    assert inputs["processing_audio_path"] == str(audio.resolve())
+    assert inputs["separator"]["raw"] is None
     assert inputs["runtime"]["backend"] == "mock"
     assert inputs["runtime"]["model_name"] == "base"
     assert inputs["runtime"]["device"] == "cpu"
@@ -74,6 +78,43 @@ def test_pipeline_writes_lrc_and_debug_artifacts(tmp_path: Path) -> None:
     assert segments["summary"]["backend"] == "mock"
     assert segments["summary"]["weak_line_count"] == len(result.warnings)
     assert result.summary.backend == "mock"
+
+
+def test_pipeline_passes_separated_audio_to_transcriber(tmp_path: Path) -> None:
+    audio = tmp_path / "song.wav"
+    lyrics = tmp_path / "lyrics.txt"
+    separated = tmp_path / "vocals.wav"
+    audio.write_bytes(b"mock")
+    lyrics.write_text("hello\n", encoding="utf-8")
+    calls = {}
+
+    class Separator:
+        last_raw_result = {"output_path": separated}
+
+        def separate(self, audio_path, output_path):
+            calls["separator"] = (audio_path, output_path)
+            return separated
+
+    class Transcriber:
+        def transcribe(self, audio_path):
+            calls["transcriber"] = audio_path
+            return ()
+
+    result = run(
+        audio,
+        lyrics,
+        debug=True,
+        demucs_enabled=True,
+        backends=PipelineBackends(separator=Separator(), transcriber=Transcriber()),
+    )
+
+    assert calls["separator"] == (audio.resolve(), (tmp_path / "song.lrc").resolve())
+    assert calls["transcriber"] == separated
+    assert result.processing_audio_path == separated
+    inputs = json.loads((result.debug_dir / "inputs.json").read_text(encoding="utf-8"))
+    assert inputs["inputs"]["demucs_enabled"] is True
+    assert inputs["processing_audio_path"] == str(separated)
+    assert inputs["separator"]["raw"] == {"output_path": str(separated)}
 
 
 def test_pipeline_preserves_canonical_lyrics_text(tmp_path: Path) -> None:

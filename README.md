@@ -24,8 +24,8 @@ Initial flags:
 - `-o, --output`: choose an output path
 - `--force`: overwrite an existing output file
 - `--debug`: write `transcript.json`, `alignment.json`, and `segments.json`
-- `--no-separate-vocals`: skip the vocal-separation stage
 - `--backend mock|whisperx`: choose mocked timing or the optional WhisperX backend
+- `--demucs`: run optional Demucs vocal separation before WhisperX
 - `--model`: WhisperX model name, defaulting to `base`
 - `--device`: runtime device, defaulting to `cpu`
 - `--compute-type`: WhisperX compute type, defaulting to `int8`
@@ -46,6 +46,14 @@ WhisperX also requires `ffmpeg` to be available on your system path.
 wispr song.wav lyrics.txt --backend whisperx --model base --device cpu --compute-type int8
 ```
 
+Vocal separation is off by default. To run WhisperX on Demucs-isolated vocals, install
+the optional separation extra and pass `--demucs`:
+
+```bash
+uv sync --extra ml --extra separation
+wispr song.wav lyrics.txt --backend whisperx --demucs --model base --device cpu
+```
+
 The emitted `.lrc` still uses the supplied lyrics file as canonical text. WhisperX only
 provides timing evidence.
 
@@ -57,6 +65,7 @@ For example:
 ```bash
 uv run wispr inputs/03-giveon-twenties.flac inputs/lyrics.txt \
   --backend whisperx \
+  --demucs \
   --model base \
   --device cpu \
   --compute-type int8 \

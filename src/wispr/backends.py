@@ -12,7 +12,7 @@ class MetadataReader(Protocol):
 
 
 class VocalSeparator(Protocol):
-    def separate(self, audio_path: Path) -> Path: ...
+    def separate(self, audio_path: Path, output_path: Path) -> Path: ...
 
 
 class Transcriber(Protocol):
@@ -34,7 +34,8 @@ class EmptyMetadataReader:
 
 
 class NoOpVocalSeparator:
-    def separate(self, audio_path: Path) -> Path:
+    def separate(self, audio_path: Path, output_path: Path) -> Path:
+        del output_path
         return audio_path
 
 
