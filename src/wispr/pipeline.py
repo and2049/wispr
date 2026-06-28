@@ -67,7 +67,7 @@ def run(
     metadata = read_metadata(backends.metadata, inputs.audio_path)
     processing_audio = prepare_audio(backends.separator, inputs)
     transcript = transcribe_audio(backends.transcriber, processing_audio)
-    alignment = align_lyrics(backends.aligner, transcript, lyrics)
+    alignment = align_lyrics(backends.aligner, transcript, lyrics, processing_audio)
     lines, warnings = segment_lines(lyrics, alignment)
 
     write_output(inputs.output_path, LrcDocument(metadata=metadata, lines=lines))
@@ -118,8 +118,9 @@ def align_lyrics(
     aligner: Aligner,
     transcript: tuple[TranscriptWord, ...],
     lyrics: tuple[str, ...],
+    audio_path: Path,
 ) -> tuple[AlignedWord, ...]:
-    return aligner.align(transcript, lyrics)
+    return aligner.align(transcript, lyrics, audio_path)
 
 
 def write_output(output_path: Path, document: LrcDocument) -> None:

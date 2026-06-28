@@ -26,6 +26,17 @@ class PipelineInputs:
 @dataclass(frozen=True)
 class TranscriptionConfig:
     model_name: str = "base"
+    device: str = "cpu"
+    compute_type: str = "int8"
+    batch_size: int = 4
+    language: str = "en"
+
+
+@dataclass(frozen=True)
+class AlignmentConfig:
+    device: str = "cpu"
+    language: str = "en"
+    return_char_alignments: bool = False
 
 
 @dataclass(frozen=True)

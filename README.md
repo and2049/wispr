@@ -25,12 +25,28 @@ Initial flags:
 - `--force`: overwrite an existing output file
 - `--debug`: write `transcript.json`, `alignment.json`, and `segments.json`
 - `--no-separate-vocals`: skip the vocal-separation stage
+- `--backend mock|whisperx`: choose mocked timing or the optional WhisperX backend
+- `--model`: WhisperX model name, defaulting to `base`
+- `--device`: runtime device, defaulting to `cpu`
+- `--compute-type`: WhisperX compute type, defaulting to `int8`
 
 ## Current milestone
 
-This foundation uses mocked metadata, transcription, alignment, and vocal-separation
-adapters. That keeps the library small and testable while preserving the integration
-points needed for future WhisperX or vocal-separation backends.
+The default backend uses mocked transcription and alignment so the package stays small
+and testable. The optional WhisperX backend can be installed separately:
+
+```bash
+uv sync --extra ml
+```
+
+WhisperX also requires `ffmpeg` to be available on your system path.
+
+```bash
+wispr song.wav lyrics.txt --backend whisperx --model base --device cpu --compute-type int8
+```
+
+The emitted `.lrc` still uses the supplied lyrics file as canonical text. WhisperX only
+provides timing evidence.
 
 The code is organized around:
 
@@ -46,4 +62,10 @@ The code is organized around:
 uv sync --dev
 uv run pytest
 uv run ruff check .
+```
+
+Slow ML tests should be marked with `pytest.mark.ml` and run explicitly:
+
+```bash
+uv run pytest -m ml
 ```

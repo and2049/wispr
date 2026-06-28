@@ -4,7 +4,8 @@ from pathlib import Path
 import pytest
 
 from wispr.lyrics import read_lyrics, validate_lyrics_path
-from wispr.pipeline import run
+from wispr.models import AlignedWord
+from wispr.pipeline import PipelineBackends, run
 
 
 def test_lyrics_parsing_preserves_line_text(tmp_path: Path) -> None:
@@ -56,3 +57,22 @@ def test_pipeline_writes_lrc_and_debug_artifacts(tmp_path: Path) -> None:
     assert inputs["inputs"]["audio_path"] == str(audio.resolve())
     assert inputs["inputs"]["lyrics_path"] == str(lyrics.resolve())
     assert inputs["inputs"]["output_path"] == str((tmp_path / "song.lrc").resolve())
+
+
+def test_pipeline_preserves_canonical_lyrics_text(tmp_path: Path) -> None:
+    audio = tmp_path / "song.wav"
+    lyrics = tmp_path / "lyrics.txt"
+    audio.write_bytes(b"mock")
+    lyrics.write_text("canonical lyric\n", encoding="utf-8")
+
+    class DifferentTextAligner:
+        def align(self, transcript, lyric_lines, audio_path=None):
+            return (AlignedWord("model-text", start=2.0, end=2.5, confidence=0.9),)
+
+    result = run(
+        audio,
+        lyrics,
+        backends=PipelineBackends(aligner=DifferentTextAligner()),
+    )
+
+    assert result.output_path.read_text(encoding="utf-8") == "[00:02.00]canonical lyric\n"
