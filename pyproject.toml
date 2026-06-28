@@ -1,5 +1,5 @@
 [project]
-name = "wispr"
+name = "wispr-lrc"
 version = "0.1.0"
 description = "Generate line-level LRC files from audio and canonical lyrics."
 readme = "README.md"
