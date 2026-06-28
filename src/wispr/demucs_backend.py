@@ -8,7 +8,7 @@ from pathlib import Path
 from wispr.models import DemucsConfig
 
 INSTALL_MESSAGE = (
-    "Demucs separation requires optional dependencies. Install with: wispr[separation]"
+    "Demucs separation requires optional dependencies. Install with: wispr-lrc[separation]"
 )
 
 

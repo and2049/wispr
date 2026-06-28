@@ -17,7 +17,7 @@ from wispr.models import (
     TranscriptWord,
 )
 
-INSTALL_MESSAGE = "WhisperX backend requires optional ML dependencies. Install with: wispr[ml]"
+INSTALL_MESSAGE = "WhisperX backend requires optional ML dependencies. Install with: wispr-lrc[ml]"
 FFMPEG_MESSAGE = "WhisperX backend requires ffmpeg on PATH."
 TORCHCODEC_WARNING = (
     r"\s*torchcodec is not installed correctly so built-in audio decoding will fail\."

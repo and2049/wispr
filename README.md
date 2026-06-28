@@ -12,8 +12,8 @@ recover timing, not to rewrite lyrics.
 wispr song.wav lyrics.txt
 ```
 
-By default this writes `song.lrc` next to the audio file. Existing outputs are not
-overwritten unless `--force` is passed.
+By default this uses the WhisperX backend and writes `song.lrc` next to the audio file.
+Existing outputs are not overwritten unless `--force` is passed.
 
 ```bash
 wispr song.wav lyrics.txt -o output.lrc --debug --force
@@ -24,7 +24,7 @@ Initial flags:
 - `-o, --output`: choose an output path
 - `--force`: overwrite an existing output file
 - `--debug`: write `transcript.json`, `alignment.json`, and `segments.json`
-- `--backend mock|whisperx`: choose mocked timing or the optional WhisperX backend
+- `--backend mock|whisperx`: choose the real WhisperX backend or mocked development timing
 - `--demucs`: run optional Demucs vocal separation before WhisperX
 - `--model`: WhisperX model name, defaulting to `base`
 - `--device`: runtime device, defaulting to `auto`
@@ -32,28 +32,36 @@ Initial flags:
 - `--batch-size`: WhisperX transcription batch size, defaulting by device
 - `--language`: WhisperX language code, defaulting to `en`
 
-## Current milestone
+## Install
 
-The default backend uses mocked transcription and alignment so the package stays small
-and testable. The optional WhisperX backend can be installed separately:
+The PyPI distribution is `wispr-lrc`, and it installs the `wispr` command.
+For real audio alignment, install the optional ML extra:
 
 ```bash
-uv sync --extra ml
+uv tool install "wispr-lrc[ml]"
 ```
 
 WhisperX also requires `ffmpeg` to be available on your system path.
 
 ```bash
-wispr song.wav lyrics.txt --backend whisperx --model base --device auto --compute-type auto
+wispr song.wav lyrics.txt --model base --device auto --compute-type auto
 ```
 
 Vocal separation is off by default. To run WhisperX on Demucs-isolated vocals, install
 the optional separation extra and pass `--demucs`:
 
 ```bash
-uv sync --extra ml --extra separation
-wispr song.wav lyrics.txt --backend whisperx --demucs --model base --device auto
+uv tool install "wispr-lrc[ml,separation]"
+wispr song.wav lyrics.txt --demucs --model base --device auto
 ```
+
+The mock backend is still available for fast development, CI, and framework smoke tests:
+
+```bash
+wispr song.wav lyrics.txt --backend mock
+```
+
+## Current milestone
 
 `--device auto` prefers CUDA when Torch reports that CUDA is available. With
 `--compute-type auto`, wispr uses `float16` on CUDA and `int8` on CPU. If CUDA

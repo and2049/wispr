@@ -19,7 +19,7 @@ def test_demucs_runtime_requires_optional_dependency(monkeypatch) -> None:
 
     monkeypatch.setattr("wispr.demucs_backend.import_module", missing_module)
 
-    with pytest.raises(RuntimeError, match=r"wispr\[separation\]"):
+    with pytest.raises(RuntimeError, match=r"wispr-lrc\[separation\]"):
         validate_demucs_runtime()
 
 
@@ -74,4 +74,4 @@ def test_demucs_vocal_separator_reports_failed_run(monkeypatch, tmp_path: Path) 
 
 
 def test_install_message_is_actionable() -> None:
-    assert "wispr[separation]" in INSTALL_MESSAGE
+    assert "wispr-lrc[separation]" in INSTALL_MESSAGE

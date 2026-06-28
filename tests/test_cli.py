@@ -13,7 +13,7 @@ def test_cli_writes_lrc(tmp_path: Path) -> None:
     audio.write_bytes(b"mock")
     lyrics.write_text("hello\n", encoding="utf-8")
 
-    result = CliRunner().invoke(app, [str(audio), str(lyrics)])
+    result = CliRunner().invoke(app, [str(audio), str(lyrics), "--backend", "mock"])
 
     assert result.exit_code == 0
     assert "Wrote" in result.stdout
@@ -75,8 +75,6 @@ def test_cli_backend_whisperx_wires_backend_factory(monkeypatch, tmp_path: Path)
         [
             str(audio),
             str(lyrics),
-            "--backend",
-            "whisperx",
             "--model",
             "small",
             "--device",
@@ -186,7 +184,10 @@ def test_cli_demucs_with_mock_backend_fails(tmp_path: Path) -> None:
     audio.write_bytes(b"mock")
     lyrics.write_text("hello\n", encoding="utf-8")
 
-    result = CliRunner().invoke(app, [str(audio), str(lyrics), "--demucs"])
+    result = CliRunner().invoke(
+        app,
+        [str(audio), str(lyrics), "--backend", "mock", "--demucs"],
+    )
 
     assert result.exit_code != 0
     assert "--demucs requires --backend whisperx" in result.output
@@ -260,7 +261,10 @@ def test_cli_benchmark_mock_writes_report(tmp_path: Path) -> None:
     audio.write_bytes(b"mock")
     lyrics.write_text("hello\n", encoding="utf-8")
 
-    result = CliRunner().invoke(app, ["benchmark", str(audio), str(lyrics)])
+    result = CliRunner().invoke(
+        app,
+        ["benchmark", str(audio), str(lyrics), "--backend", "mock"],
+    )
 
     assert result.exit_code == 0
     assert "Benchmark report" in result.stdout
@@ -276,7 +280,10 @@ def test_cli_batch_benchmark_mock_writes_report(tmp_path: Path) -> None:
     lyrics.write_text("hello\n", encoding="utf-8")
     manifest.write_text("audio,lyrics,output\nsong.wav,lyrics.txt,song.lrc\n", encoding="utf-8")
 
-    result = CliRunner().invoke(app, ["benchmark", "batch", str(manifest)])
+    result = CliRunner().invoke(
+        app,
+        ["benchmark", "batch", str(manifest), "--backend", "mock"],
+    )
 
     assert result.exit_code == 0
     assert "Benchmark report" in result.stdout

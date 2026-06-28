@@ -47,7 +47,7 @@ def test_whisper_transcriber_requires_optional_dependency(monkeypatch, tmp_path:
 
     monkeypatch.setattr("wispr.whisperx_backend.import_module", missing_module)
 
-    with pytest.raises(RuntimeError, match=r"wispr\[ml\]"):
+    with pytest.raises(RuntimeError, match=r"wispr-lrc\[ml\]"):
         transcriber.transcribe(tmp_path / "song.wav")
 
 
