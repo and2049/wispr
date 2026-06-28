@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -5,6 +6,12 @@ from typer.testing import CliRunner
 
 from wispr.cli import app
 from wispr.models import AlignmentSummary, BenchmarkBatchResult, BenchmarkRunResult, WisprWarning
+
+ANSI_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def plain_output(text: str) -> str:
+    return ANSI_PATTERN.sub("", text)
 
 
 def test_cli_writes_lrc(tmp_path: Path) -> None:
@@ -190,7 +197,7 @@ def test_cli_demucs_with_mock_backend_fails(tmp_path: Path) -> None:
     )
 
     assert result.exit_code != 0
-    assert "--demucs requires --backend whisperx" in result.output
+    assert "--demucs requires --backend whisperx" in plain_output(result.output)
 
 
 def test_cli_batch_wires_batch_runner(monkeypatch, tmp_path: Path) -> None:

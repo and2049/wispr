@@ -165,3 +165,44 @@ Demucs, Torch, ffmpeg, or model downloads in normal CI.
 Real WhisperX benchmarking is available through the manual `Manual ML Benchmark`
 workflow. It installs `ffmpeg` and the `ml` extra, runs against the same fixture, and
 uploads the `.lrc`, debug files, and benchmark report as workflow artifacts.
+
+## Release
+
+Releases use PyPI Trusted Publishing, so GitHub does not need stored PyPI API tokens.
+Configure trusted publishers on both package projects with these exact values:
+
+TestPyPI:
+
+- Owner: `and2049`
+- Repository name: `wispr`
+- Workflow name: `publish-testpypi.yml`
+- Environment name: `testpypi`
+
+PyPI:
+
+- Owner: `and2049`
+- Repository name: `wispr`
+- Workflow name: `publish-pypi.yml`
+- Environment name: `pypi`
+
+Create matching GitHub environments named `testpypi` and `pypi`. Require manual
+approval on the `pypi` environment so production publishing cannot happen from a
+single accidental workflow click.
+
+Release flow:
+
+```bash
+uv run ruff check .
+uv run pytest
+
+# Bump pyproject.toml first, then commit and tag the same version.
+uv lock
+git add pyproject.toml uv.lock
+git commit -m "Release 0.1.3"
+git tag 0.1.3
+git push origin main
+git push origin 0.1.3
+```
+
+Pushing the tag publishes that version to TestPyPI. Install and verify it from
+TestPyPI, then run the manual `Publish to PyPI` workflow with the same tag.
