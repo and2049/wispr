@@ -63,10 +63,12 @@ def test_pipeline_writes_lrc_and_debug_artifacts(tmp_path: Path) -> None:
     assert inputs["separator"]["raw"] is None
     assert inputs["runtime"]["backend"] == "mock"
     assert inputs["runtime"]["model_name"] == "base"
-    assert inputs["runtime"]["device"] == "cpu"
-    assert inputs["runtime"]["compute_type"] == "int8"
+    assert inputs["runtime"]["device"] == "auto"
+    assert inputs["runtime"]["compute_type"] == "auto"
+    assert inputs["runtime"]["batch_size"] == 4
     assert inputs["runtime"]["language"] == "en"
     assert inputs["runtime"]["vad_method"] == "silero"
+    assert (result.debug_dir / "timings.json").exists()
 
     transcript = json.loads((result.debug_dir / "transcript.json").read_text(encoding="utf-8"))
     alignment = json.loads((result.debug_dir / "alignment.json").read_text(encoding="utf-8"))
@@ -78,6 +80,8 @@ def test_pipeline_writes_lrc_and_debug_artifacts(tmp_path: Path) -> None:
     assert segments["summary"]["backend"] == "mock"
     assert segments["summary"]["weak_line_count"] == len(result.warnings)
     assert result.summary.backend == "mock"
+    assert result.stage_timings
+    assert "transcription" in result.stage_timings
 
 
 def test_pipeline_passes_separated_audio_to_transcriber(tmp_path: Path) -> None:

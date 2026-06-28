@@ -57,28 +57,34 @@ class WhisperTranscriber:
         self.last_raw_result: dict[str, Any] | None = None
         self.skipped_words = 0
         self.fallback_words = 0
+        self._model: Any | None = None
 
     def transcribe(self, audio_path: Path) -> tuple[TranscriptWord, ...]:
-        suppress_runtime_warnings()
         whisperx = import_whisperx()
-        stdout, stderr = quiet_streams()
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            model = whisperx.load_model(
-                self.config.model_name,
-                self.config.device,
-                compute_type=self.config.compute_type,
-                language=self.config.language,
-                vad_method=self.config.vad_method,
-            )
         audio = whisperx.load_audio(str(audio_path))
         stdout, stderr = quiet_streams()
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            result = model.transcribe(audio, batch_size=self.config.batch_size)
+            result = self.model().transcribe(audio, batch_size=self.config.batch_size)
         self.last_raw_result = result
         words, skipped, fallback = transcript_words_with_skips(result)
         self.skipped_words = skipped
         self.fallback_words = fallback
         return words
+
+    def model(self) -> Any:
+        if self._model is None:
+            suppress_runtime_warnings()
+            whisperx = import_whisperx()
+            stdout, stderr = quiet_streams()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                self._model = whisperx.load_model(
+                    self.config.model_name,
+                    self.config.device,
+                    compute_type=self.config.compute_type,
+                    language=self.config.language,
+                    vad_method=self.config.vad_method,
+                )
+        return self._model
 
 
 class WhisperXAligner:
@@ -87,6 +93,7 @@ class WhisperXAligner:
         self.last_raw_result: dict[str, Any] | None = None
         self.skipped_words = 0
         self.fallback_words = 0
+        self._model_cache: dict[tuple[str, str], tuple[Any, Any]] = {}
 
     def align(
         self,
@@ -96,14 +103,8 @@ class WhisperXAligner:
     ) -> tuple[AlignedWord, ...]:
         if audio_path is None:
             raise ValueError("WhisperX alignment requires the prepared audio path.")
-        suppress_runtime_warnings()
         whisperx = import_whisperx()
-        stdout, stderr = quiet_streams()
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            model, metadata = whisperx.load_align_model(
-                language_code=self.config.language,
-                device=self.config.device,
-            )
+        model, metadata = self.alignment_model(self.config.language)
         audio = whisperx.load_audio(str(audio_path))
         stdout, stderr = quiet_streams()
         with redirect_stdout(stdout), redirect_stderr(stderr):
@@ -120,6 +121,19 @@ class WhisperXAligner:
         self.skipped_words = skipped
         self.fallback_words = fallback
         return words or raw_transcript_alignment(transcript)
+
+    def alignment_model(self, language: str) -> tuple[Any, Any]:
+        key = (language, self.config.device)
+        if key not in self._model_cache:
+            suppress_runtime_warnings()
+            whisperx = import_whisperx()
+            stdout, stderr = quiet_streams()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                self._model_cache[key] = whisperx.load_align_model(
+                    language_code=language,
+                    device=self.config.device,
+                )
+        return self._model_cache[key]
 
 
 def transcript_words(result: dict[str, Any]) -> tuple[TranscriptWord, ...]:

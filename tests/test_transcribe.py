@@ -20,21 +20,21 @@ from wispr.whisperx_backend import (
 )
 
 
-def test_transcription_config_defaults_are_cpu_safe() -> None:
+def test_transcription_config_defaults_are_auto_runtime() -> None:
     config = TranscriptionConfig()
 
     assert config.model_name == "base"
-    assert config.device == "cpu"
-    assert config.compute_type == "int8"
+    assert config.device == "auto"
+    assert config.compute_type == "auto"
     assert config.batch_size == 4
     assert config.language == "en"
     assert config.vad_method == "silero"
 
 
-def test_alignment_config_defaults_are_cpu_safe() -> None:
+def test_alignment_config_defaults_are_auto_runtime() -> None:
     config = AlignmentConfig()
 
-    assert config.device == "cpu"
+    assert config.device == "auto"
     assert config.language == "en"
     assert config.return_char_alignments is False
 
@@ -292,6 +292,27 @@ def test_whisperx_transcriber_calls_backend_with_config(monkeypatch, tmp_path: P
     assert words[0].source == "whisperx"
 
 
+def test_whisperx_transcriber_reuses_loaded_model(monkeypatch, tmp_path: Path) -> None:
+    calls = {"load_model": 0}
+
+    class FakeModel:
+        def transcribe(self, audio, batch_size: int):
+            return {"segments": [{"words": [{"word": "hello", "start": 0, "end": 1}]}]}
+
+    fake_whisperx = SimpleNamespace(
+        load_model=lambda *args, **kwargs: calls.update(load_model=calls["load_model"] + 1)
+        or FakeModel(),
+        load_audio=lambda path: "audio",
+    )
+    monkeypatch.setattr("wispr.whisperx_backend.import_whisperx", lambda: fake_whisperx)
+
+    transcriber = WhisperTranscriber(TranscriptionConfig(device="cpu", compute_type="int8"))
+    transcriber.transcribe(tmp_path / "one.wav")
+    transcriber.transcribe(tmp_path / "two.wav")
+
+    assert calls["load_model"] == 1
+
+
 def test_whisperx_aligner_calls_backend_with_canonical_lyrics(monkeypatch, tmp_path: Path) -> None:
     audio_path = tmp_path / "song.wav"
     calls = {}
@@ -313,11 +334,34 @@ def test_whisperx_aligner_calls_backend_with_canonical_lyrics(monkeypatch, tmp_p
     transcript = (TranscriptWord("heard", start=1.0, end=3.0),)
     words = WhisperXAligner().align(transcript, ("canonical line",), audio_path)
 
-    assert calls["load_align_model"] == ("en", "cpu")
+    assert calls["load_align_model"] == ("en", "auto")
     assert calls["load_audio"] == str(audio_path)
     assert calls["align"][0] == [{"text": "canonical line", "start": 1.0, "end": 3.0}]
     assert calls["align"][3] == "audio"
     assert words[0].text == "canonical"
+
+
+def test_whisperx_aligner_reuses_model_by_language_and_device(monkeypatch, tmp_path: Path) -> None:
+    calls = {"load_align_model": 0}
+
+    fake_whisperx = SimpleNamespace(
+        load_align_model=lambda language_code, device: calls.update(
+            load_align_model=calls["load_align_model"] + 1
+        )
+        or ("model", "metadata"),
+        load_audio=lambda path: "audio",
+        align=lambda *args, **kwargs: {
+            "segments": [{"words": [{"word": "canonical", "start": 0, "end": 1}]}]
+        },
+    )
+    monkeypatch.setattr("wispr.whisperx_backend.import_whisperx", lambda: fake_whisperx)
+
+    aligner = WhisperXAligner(AlignmentConfig(device="cpu", language="en"))
+    transcript = (TranscriptWord("heard", start=0.0, end=1.0),)
+    aligner.align(transcript, ("canonical",), tmp_path / "one.wav")
+    aligner.align(transcript, ("canonical",), tmp_path / "two.wav")
+
+    assert calls["load_align_model"] == 1
 
 
 def test_whisperx_aligner_falls_back_to_raw_transcript(monkeypatch, tmp_path: Path) -> None:

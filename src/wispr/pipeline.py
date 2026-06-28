@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
+from typing import TypeVar
 
 from wispr.audio import ensure_output_writable, resolve_output_path, validate_audio_path
 from wispr.backends import (
@@ -30,6 +33,8 @@ from wispr.models import (
 )
 from wispr.segment import segment_lines, summarize_alignment
 
+T = TypeVar("T")
+
 
 @dataclass(frozen=True)
 class PipelineResult:
@@ -38,6 +43,7 @@ class PipelineResult:
     summary: AlignmentSummary
     debug_dir: Path | None = None
     processing_audio_path: Path | None = None
+    stage_timings: dict[str, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -57,9 +63,11 @@ def run(
     force: bool = False,
     debug: bool = False,
     demucs_enabled: bool = False,
+    metadata_override: TrackMetadata | None = None,
     backends: PipelineBackends | None = None,
 ) -> PipelineResult:
     backends = backends or PipelineBackends()
+    timings: dict[str, float] = {}
     inputs = prepare_inputs(
         audio_path,
         lyrics_path,
@@ -68,25 +76,41 @@ def run(
         debug=debug,
         demucs_enabled=demucs_enabled,
     )
-    lyrics = read_lyrics(inputs.lyrics_path)
-    metadata = read_metadata(backends.metadata, inputs.audio_path)
-    processing_audio = prepare_audio(backends.separator, inputs)
-    transcript = transcribe_audio(backends.transcriber, processing_audio)
+    lyrics = timed(timings, "lyrics", lambda: read_lyrics(inputs.lyrics_path))
+    metadata = timed(
+        timings,
+        "metadata",
+        lambda: read_metadata(backends.metadata, inputs.audio_path),
+    )
+    metadata = apply_metadata_override(metadata, metadata_override)
+    processing_audio = timed(
+        timings,
+        "separation",
+        lambda: prepare_audio(backends.separator, inputs),
+    )
+    transcript = timed(
+        timings,
+        "transcription",
+        lambda: transcribe_audio(backends.transcriber, processing_audio),
+    )
     ensure_transcript_quality(backends.runtime.backend, transcript)
-    alignment = align_lyrics(backends.aligner, transcript, lyrics, processing_audio)
+    alignment = timed(
+        timings,
+        "alignment",
+        lambda: align_lyrics(backends.aligner, transcript, lyrics, processing_audio),
+    )
     ensure_alignment_quality(backends.runtime.backend, alignment)
-    lines, warnings = segment_lines(lyrics, alignment)
-    summary = summarize_alignment(
-        lyrics,
-        alignment,
-        lines,
-        warnings,
-        backend=backends.runtime.backend,
-        skipped_words=skipped_word_count(backends.transcriber)
-        + skipped_word_count(backends.aligner),
+    lines, warnings, summary = timed(
+        timings,
+        "segmentation",
+        lambda: segment_and_summarize(lyrics, alignment, backends),
     )
 
-    write_output(inputs.output_path, LrcDocument(metadata=metadata, lines=lines))
+    timed(
+        timings,
+        "output",
+        lambda: write_output(inputs.output_path, LrcDocument(metadata=metadata, lines=lines)),
+    )
     debug_dir = (
         write_debug(
             inputs,
@@ -98,6 +122,7 @@ def run(
             lines,
             summary,
             backends,
+            timings,
         )
         if inputs.debug
         else None
@@ -108,6 +133,7 @@ def run(
         summary=summary,
         debug_dir=debug_dir,
         processing_audio_path=processing_audio,
+        stage_timings=timings,
     )
 
 
@@ -138,6 +164,20 @@ def read_metadata(reader: MetadataReader, audio_path: Path) -> TrackMetadata:
     return reader.read(audio_path)
 
 
+def apply_metadata_override(
+    metadata: TrackMetadata,
+    override: TrackMetadata | None,
+) -> TrackMetadata:
+    if override is None:
+        return metadata
+    return TrackMetadata(
+        title=override.title or metadata.title,
+        artist=override.artist or metadata.artist,
+        album=override.album or metadata.album,
+        source_path=metadata.source_path,
+    )
+
+
 def prepare_audio(separator: VocalSeparator, inputs: PipelineInputs) -> Path:
     if not inputs.demucs_enabled:
         return inputs.audio_path
@@ -157,6 +197,24 @@ def align_lyrics(
     return aligner.align(transcript, lyrics, audio_path)
 
 
+def segment_and_summarize(
+    lyrics: tuple[str, ...],
+    alignment: tuple[AlignedWord, ...],
+    backends: PipelineBackends,
+) -> tuple[object, tuple[WisprWarning, ...], AlignmentSummary]:
+    lines, warnings = segment_lines(lyrics, alignment)
+    summary = summarize_alignment(
+        lyrics,
+        alignment,
+        lines,
+        warnings,
+        backend=backends.runtime.backend,
+        skipped_words=skipped_word_count(backends.transcriber)
+        + skipped_word_count(backends.aligner),
+    )
+    return lines, warnings, summary
+
+
 def write_output(output_path: Path, document: LrcDocument) -> None:
     output_path.write_text(serialize_lrc(document), encoding="utf-8")
 
@@ -171,7 +229,9 @@ def write_debug(
     segments: object,
     summary: AlignmentSummary,
     backends: PipelineBackends,
+    timings: dict[str, float],
 ) -> Path:
+    start = perf_counter()
     debug_dir = inputs.output_path.with_suffix("").with_name(f"{inputs.output_path.stem}.debug")
     debug_dir.mkdir(parents=True, exist_ok=True)
     artifacts = {
@@ -192,7 +252,20 @@ def write_debug(
             json.dumps(to_jsonable(value), indent=2),
             encoding="utf-8",
         )
+    timings["debug"] = perf_counter() - start
+    (debug_dir / "timings.json").write_text(
+        json.dumps(to_jsonable(timings), indent=2),
+        encoding="utf-8",
+    )
     return debug_dir
+
+
+def timed(timings: dict[str, float], stage: str, call: Callable[[], T]) -> T:
+    start = perf_counter()
+    try:
+        return call()
+    finally:
+        timings[stage] = perf_counter() - start
 
 
 def debug_payload(normalized: object, backend: object) -> dict[str, object]:

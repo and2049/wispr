@@ -27,8 +27,9 @@ Initial flags:
 - `--backend mock|whisperx`: choose mocked timing or the optional WhisperX backend
 - `--demucs`: run optional Demucs vocal separation before WhisperX
 - `--model`: WhisperX model name, defaulting to `base`
-- `--device`: runtime device, defaulting to `cpu`
-- `--compute-type`: WhisperX compute type, defaulting to `int8`
+- `--device`: runtime device, defaulting to `auto`
+- `--compute-type`: WhisperX compute type, defaulting to `auto`
+- `--batch-size`: WhisperX transcription batch size, defaulting by device
 - `--language`: WhisperX language code, defaulting to `en`
 
 ## Current milestone
@@ -43,7 +44,7 @@ uv sync --extra ml
 WhisperX also requires `ffmpeg` to be available on your system path.
 
 ```bash
-wispr song.wav lyrics.txt --backend whisperx --model base --device cpu --compute-type int8
+wispr song.wav lyrics.txt --backend whisperx --model base --device auto --compute-type auto
 ```
 
 Vocal separation is off by default. To run WhisperX on Demucs-isolated vocals, install
@@ -51,8 +52,30 @@ the optional separation extra and pass `--demucs`:
 
 ```bash
 uv sync --extra ml --extra separation
-wispr song.wav lyrics.txt --backend whisperx --demucs --model base --device cpu
+wispr song.wav lyrics.txt --backend whisperx --demucs --model base --device auto
 ```
+
+`--device auto` prefers CUDA when Torch reports that CUDA is available. With
+`--compute-type auto`, wispr uses `float16` on CUDA and `int8` on CPU. If CUDA
+is requested explicitly and unavailable, the run fails with a clear message.
+
+Batch processing uses a CSV manifest with required `audio` and `lyrics` columns
+and optional `output`, `language`, `title`, `artist`, and `album` columns.
+Relative paths are resolved beside the manifest.
+
+```csv
+audio,lyrics,output,language
+song-a.flac,song-a.txt,out/song-a.lrc,en
+song-b.flac,song-b.txt,out/song-b.lrc,en
+```
+
+```bash
+wispr batch manifest.csv --backend whisperx --device auto --compute-type auto --debug --force
+```
+
+Batch runs are sequential in one process so WhisperX models can be reused
+without oversubscribing the GPU. Each run writes a `*.summary.json` file beside
+the manifest with per-row status and stage timings.
 
 The emitted `.lrc` still uses the supplied lyrics file as canonical text. WhisperX only
 provides timing evidence.
@@ -67,8 +90,8 @@ uv run wispr inputs/03-giveon-twenties.flac inputs/lyrics.txt \
   --backend whisperx \
   --demucs \
   --model base \
-  --device cpu \
-  --compute-type int8 \
+  --device auto \
+  --compute-type auto \
   --debug \
   --force \
   -o inputs/out/twenties.lrc
@@ -86,6 +109,7 @@ The code is organized around:
 - a thin Typer CLI over reusable library code
 - debug artifacts that mirror internal pipeline state
 - structured warnings for weak alignment
+- batch summaries and stage timings for runtime profiling
 
 ## Development
 

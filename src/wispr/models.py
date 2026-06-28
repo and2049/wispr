@@ -27,20 +27,24 @@ class PipelineInputs:
 class BackendRuntimeConfig:
     backend: str = "mock"
     model_name: str = "base"
-    device: str = "cpu"
-    compute_type: str = "int8"
+    device: str = "auto"
+    compute_type: str = "auto"
+    batch_size: int = 4
     language: str = "en"
     vad_method: str = "silero"
     demucs_enabled: bool = False
     separator_backend: str = "none"
     separator_model: str | None = None
+    requested_device: str = "auto"
+    requested_compute_type: str = "auto"
+    runtime_note: str | None = None
 
 
 @dataclass(frozen=True)
 class TranscriptionConfig:
     model_name: str = "base"
-    device: str = "cpu"
-    compute_type: str = "int8"
+    device: str = "auto"
+    compute_type: str = "auto"
     batch_size: int = 4
     language: str = "en"
     vad_method: str = "silero"
@@ -48,7 +52,7 @@ class TranscriptionConfig:
 
 @dataclass(frozen=True)
 class AlignmentConfig:
-    device: str = "cpu"
+    device: str = "auto"
     language: str = "en"
     return_char_alignments: bool = False
 
@@ -56,7 +60,42 @@ class AlignmentConfig:
 @dataclass(frozen=True)
 class DemucsConfig:
     model_name: str = "htdemucs"
-    device: str = "cpu"
+    device: str = "auto"
+
+
+@dataclass(frozen=True)
+class BatchJob:
+    row_number: int
+    audio_path: Path
+    lyrics_path: Path
+    output_path: Path | None = None
+    language: str | None = None
+    title: str | None = None
+    artist: str | None = None
+    album: str | None = None
+
+
+@dataclass(frozen=True)
+class BatchJobResult:
+    job: BatchJob
+    status: str
+    output_path: Path | None = None
+    debug_dir: Path | None = None
+    summary: AlignmentSummary | None = None
+    warnings: tuple[WisprWarning, ...] = ()
+    error_message: str | None = None
+    stage_timings: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BatchRunResult:
+    manifest_path: Path
+    summary_path: Path
+    jobs: tuple[BatchJobResult, ...]
+    total_jobs: int
+    succeeded: int
+    failed: int
+    stage_timings: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

@@ -3,17 +3,36 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated
 
+import click
 import typer
+from typer.core import TyperGroup
 
 from wispr.backend_factory import BackendName, build_backends
+from wispr.batch import run_batch as run_batch_manifest
+from wispr.models import BatchRunResult
 from wispr.pipeline import run
 
-app = typer.Typer(add_completion=False, no_args_is_help=True)
+
+class DefaultCommandGroup(TyperGroup):
+    def parse_args(self, ctx, args):
+        if args and not args[0].startswith("-") and args[0] not in self.commands:
+            args = ["run", *args]
+        return super().parse_args(ctx, args)
+
+    def resolve_command(self, ctx, args):
+        try:
+            return super().resolve_command(ctx, args)
+        except click.UsageError:
+            args.insert(0, "run")
+            return super().resolve_command(ctx, args)
+
+
+app = typer.Typer(cls=DefaultCommandGroup, add_completion=False, no_args_is_help=True)
 MAX_WARNING_LINES = 5
 
 
-@app.command()
-def main(
+@app.command("run")
+def run_command(
     audio: Annotated[Path, typer.Argument(help="Input audio file.")],
     lyrics: Annotated[Path, typer.Argument(help="Canonical line-by-line lyrics file.")],
     output: Annotated[Path | None, typer.Option("-o", "--output")] = None,
@@ -22,8 +41,9 @@ def main(
     demucs: Annotated[bool, typer.Option("--demucs")] = False,
     backend: Annotated[BackendName, typer.Option("--backend")] = BackendName.mock,
     model: Annotated[str, typer.Option("--model")] = "base",
-    device: Annotated[str, typer.Option("--device")] = "cpu",
-    compute_type: Annotated[str, typer.Option("--compute-type")] = "int8",
+    device: Annotated[str, typer.Option("--device")] = "auto",
+    compute_type: Annotated[str, typer.Option("--compute-type")] = "auto",
+    batch_size: Annotated[int | None, typer.Option("--batch-size")] = None,
     language: Annotated[str, typer.Option("--language")] = "en",
 ) -> None:
     try:
@@ -32,6 +52,7 @@ def main(
             model_name=model,
             device=device,
             compute_type=compute_type,
+            batch_size=batch_size,
             language=language,
             demucs=demucs,
         )
@@ -47,6 +68,42 @@ def main(
     except (FileExistsError, FileNotFoundError, RuntimeError, ValueError) as error:
         raise typer.BadParameter(str(error)) from error
 
+    print_run_result(result)
+
+
+@app.command("batch")
+def batch_command(
+    manifest: Annotated[Path, typer.Argument(help="CSV manifest with audio and lyrics columns.")],
+    force: Annotated[bool, typer.Option("--force")] = False,
+    debug: Annotated[bool, typer.Option("--debug")] = False,
+    demucs: Annotated[bool, typer.Option("--demucs")] = False,
+    backend: Annotated[BackendName, typer.Option("--backend")] = BackendName.mock,
+    model: Annotated[str, typer.Option("--model")] = "base",
+    device: Annotated[str, typer.Option("--device")] = "auto",
+    compute_type: Annotated[str, typer.Option("--compute-type")] = "auto",
+    batch_size: Annotated[int | None, typer.Option("--batch-size")] = None,
+    language: Annotated[str, typer.Option("--language")] = "en",
+) -> None:
+    try:
+        result = run_batch_manifest(
+            manifest,
+            backend=backend,
+            model_name=model,
+            device=device,
+            compute_type=compute_type,
+            batch_size=batch_size,
+            language=language,
+            demucs=demucs,
+            force=force,
+            debug=debug,
+        )
+    except (FileExistsError, FileNotFoundError, RuntimeError, ValueError) as error:
+        raise typer.BadParameter(str(error)) from error
+
+    print_batch_result(result)
+
+
+def print_run_result(result) -> None:
     typer.echo(f"Wrote {result.output_path}")
     typer.echo(
         "Alignment summary: "
@@ -70,3 +127,20 @@ def main(
     remaining_warnings = len(result.warnings) - MAX_WARNING_LINES
     if remaining_warnings > 0:
         typer.echo(f"... {remaining_warnings} more warnings", err=True)
+
+
+def print_batch_result(result: BatchRunResult) -> None:
+    for item in result.jobs:
+        if item.status == "ok":
+            typer.echo(f"ok row={item.job.row_number} output={item.output_path}")
+        else:
+            typer.echo(
+                f"failed row={item.job.row_number} audio={item.job.audio_path}: "
+                f"{item.error_message}",
+                err=True,
+            )
+    typer.echo(
+        f"Batch summary: total={result.total_jobs} ok={result.succeeded} "
+        f"failed={result.failed} seconds={result.stage_timings.get('batch_total', 0.0):.2f}"
+    )
+    typer.echo(f"Batch summary file: {result.summary_path}")
