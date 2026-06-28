@@ -19,6 +19,8 @@ from wispr.lyrics import read_lyrics, validate_lyrics_path
 from wispr.metadata import MutagenMetadataReader
 from wispr.models import (
     AlignedWord,
+    AlignmentSummary,
+    BackendRuntimeConfig,
     LrcDocument,
     PipelineInputs,
     TrackMetadata,
@@ -26,13 +28,14 @@ from wispr.models import (
     WisprWarning,
     to_jsonable,
 )
-from wispr.segment import segment_lines
+from wispr.segment import segment_lines, summarize_alignment
 
 
 @dataclass(frozen=True)
 class PipelineResult:
     output_path: Path
     warnings: tuple[WisprWarning, ...]
+    summary: AlignmentSummary
     debug_dir: Path | None = None
 
 
@@ -42,6 +45,7 @@ class PipelineBackends:
     separator: VocalSeparator = NoOpVocalSeparator()
     transcriber: Transcriber = MockTranscriber()
     aligner: Aligner = MockAligner()
+    runtime: BackendRuntimeConfig = BackendRuntimeConfig()
 
 
 def run(
@@ -69,14 +73,36 @@ def run(
     transcript = transcribe_audio(backends.transcriber, processing_audio)
     alignment = align_lyrics(backends.aligner, transcript, lyrics, processing_audio)
     lines, warnings = segment_lines(lyrics, alignment)
+    summary = summarize_alignment(
+        lyrics,
+        alignment,
+        warnings,
+        backend=backends.runtime.backend,
+        skipped_words=skipped_word_count(backends.transcriber)
+        + skipped_word_count(backends.aligner),
+    )
 
     write_output(inputs.output_path, LrcDocument(metadata=metadata, lines=lines))
     debug_dir = (
-        write_debug(inputs, metadata, transcript, alignment, lines)
+        write_debug(
+            inputs,
+            backends.runtime,
+            metadata,
+            transcript,
+            alignment,
+            lines,
+            summary,
+            backends,
+        )
         if inputs.debug
         else None
     )
-    return PipelineResult(output_path=inputs.output_path, warnings=warnings, debug_dir=debug_dir)
+    return PipelineResult(
+        output_path=inputs.output_path,
+        warnings=warnings,
+        summary=summary,
+        debug_dir=debug_dir,
+    )
 
 
 def prepare_inputs(
@@ -129,18 +155,21 @@ def write_output(output_path: Path, document: LrcDocument) -> None:
 
 def write_debug(
     inputs: PipelineInputs,
+    runtime: BackendRuntimeConfig,
     metadata: TrackMetadata,
-    transcript: object,
-    alignment: object,
+    transcript: tuple[TranscriptWord, ...],
+    alignment: tuple[AlignedWord, ...],
     segments: object,
+    summary: AlignmentSummary,
+    backends: PipelineBackends,
 ) -> Path:
     debug_dir = inputs.output_path.with_suffix("").with_name(f"{inputs.output_path.stem}.debug")
     debug_dir.mkdir(parents=True, exist_ok=True)
     artifacts = {
-        "inputs.json": {"inputs": inputs, "metadata": metadata},
-        "transcript.json": transcript,
-        "alignment.json": alignment,
-        "segments.json": segments,
+        "inputs.json": {"inputs": inputs, "runtime": runtime, "metadata": metadata},
+        "transcript.json": debug_payload(transcript, backends.transcriber),
+        "alignment.json": debug_payload(alignment, backends.aligner),
+        "segments.json": {"segments": segments, "summary": summary},
     }
     for name, value in artifacts.items():
         (debug_dir / name).write_text(
@@ -148,3 +177,15 @@ def write_debug(
             encoding="utf-8",
         )
     return debug_dir
+
+
+def debug_payload(normalized: object, backend: object) -> dict[str, object]:
+    return {
+        "raw": getattr(backend, "last_raw_result", None),
+        "normalized": normalized,
+        "skipped_words": skipped_word_count(backend),
+    }
+
+
+def skipped_word_count(backend: object) -> int:
+    return int(getattr(backend, "skipped_words", 0))

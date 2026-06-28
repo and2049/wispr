@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from importlib import import_module
 from pathlib import Path
+from shutil import which
 from typing import Any
 
 from wispr.models import (
@@ -12,6 +13,7 @@ from wispr.models import (
 )
 
 INSTALL_MESSAGE = "WhisperX backend requires optional ML dependencies. Install with: wispr[ml]"
+FFMPEG_MESSAGE = "WhisperX backend requires ffmpeg on PATH."
 
 
 def import_whisperx() -> Any:
@@ -21,9 +23,17 @@ def import_whisperx() -> Any:
         raise RuntimeError(INSTALL_MESSAGE) from error
 
 
+def validate_whisperx_runtime() -> None:
+    import_whisperx()
+    if which("ffmpeg") is None:
+        raise RuntimeError(FFMPEG_MESSAGE)
+
+
 class WhisperTranscriber:
     def __init__(self, config: TranscriptionConfig | None = None) -> None:
         self.config = config or TranscriptionConfig()
+        self.last_raw_result: dict[str, Any] | None = None
+        self.skipped_words = 0
 
     def transcribe(self, audio_path: Path) -> tuple[TranscriptWord, ...]:
         whisperx = import_whisperx()
@@ -35,12 +45,17 @@ class WhisperTranscriber:
         )
         audio = whisperx.load_audio(str(audio_path))
         result = model.transcribe(audio, batch_size=self.config.batch_size)
-        return transcript_words(result)
+        self.last_raw_result = result
+        words, skipped = transcript_words_with_skips(result)
+        self.skipped_words = skipped
+        return words
 
 
 class WhisperXAligner:
     def __init__(self, config: AlignmentConfig | None = None) -> None:
         self.config = config or AlignmentConfig()
+        self.last_raw_result: dict[str, Any] | None = None
+        self.skipped_words = 0
 
     def align(
         self,
@@ -64,14 +79,23 @@ class WhisperXAligner:
             self.config.device,
             return_char_alignments=self.config.return_char_alignments,
         )
-        return aligned_words(result)
+        self.last_raw_result = result
+        words, skipped = aligned_words_with_skips(result)
+        self.skipped_words = skipped
+        return words
 
 
 def transcript_words(result: dict[str, Any]) -> tuple[TranscriptWord, ...]:
+    return transcript_words_with_skips(result)[0]
+
+
+def transcript_words_with_skips(result: dict[str, Any]) -> tuple[tuple[TranscriptWord, ...], int]:
     words: list[TranscriptWord] = []
+    skipped = 0
     for word in iter_word_dicts(result):
         text = word.get("word") or word.get("text")
         if not text or "start" not in word or "end" not in word:
+            skipped += 1
             continue
         words.append(
             TranscriptWord(
@@ -82,14 +106,20 @@ def transcript_words(result: dict[str, Any]) -> tuple[TranscriptWord, ...]:
                 source="whisperx",
             )
         )
-    return tuple(words)
+    return tuple(words), skipped
 
 
 def aligned_words(result: dict[str, Any]) -> tuple[AlignedWord, ...]:
+    return aligned_words_with_skips(result)[0]
+
+
+def aligned_words_with_skips(result: dict[str, Any]) -> tuple[tuple[AlignedWord, ...], int]:
     words: list[AlignedWord] = []
+    skipped = 0
     for word in iter_word_dicts(result):
         text = word.get("word") or word.get("text")
         if not text or "start" not in word or "end" not in word:
+            skipped += 1
             continue
         words.append(
             AlignedWord(
@@ -100,7 +130,7 @@ def aligned_words(result: dict[str, Any]) -> tuple[AlignedWord, ...]:
                 timestamp_source="whisperx",
             )
         )
-    return tuple(words)
+    return tuple(words), skipped
 
 
 def canonical_segments(

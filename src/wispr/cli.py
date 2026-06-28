@@ -23,6 +23,7 @@ def main(
     model: Annotated[str, typer.Option("--model")] = "base",
     device: Annotated[str, typer.Option("--device")] = "cpu",
     compute_type: Annotated[str, typer.Option("--compute-type")] = "int8",
+    language: Annotated[str, typer.Option("--language")] = "en",
 ) -> None:
     try:
         backends = build_backends(
@@ -30,6 +31,7 @@ def main(
             model_name=model,
             device=device,
             compute_type=compute_type,
+            language=language,
         )
         result = run(
             audio,
@@ -44,6 +46,14 @@ def main(
         raise typer.BadParameter(str(error)) from error
 
     typer.echo(f"Wrote {result.output_path}")
+    typer.echo(
+        "Alignment summary: "
+        f"backend={result.summary.backend} "
+        f"aligned={result.summary.aligned_words}/{result.summary.total_lyric_words} "
+        f"skipped={result.summary.skipped_words} "
+        f"avg_confidence={result.summary.average_confidence:.2f} "
+        f"weak_lines={result.summary.weak_line_count}"
+    )
     for warning in result.warnings:
         typer.echo(
             f"warning: line {warning.line_number} confidence={warning.confidence:.2f} "

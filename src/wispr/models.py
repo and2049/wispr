@@ -24,6 +24,15 @@ class PipelineInputs:
 
 
 @dataclass(frozen=True)
+class BackendRuntimeConfig:
+    backend: str = "mock"
+    model_name: str = "base"
+    device: str = "cpu"
+    compute_type: str = "int8"
+    language: str = "en"
+
+
+@dataclass(frozen=True)
 class TranscriptionConfig:
     model_name: str = "base"
     device: str = "cpu"
@@ -79,6 +88,16 @@ class WisprWarning:
     confidence: float
     timestamp_source: str
     message: str
+
+
+@dataclass(frozen=True)
+class AlignmentSummary:
+    total_lyric_words: int
+    aligned_words: int
+    skipped_words: int
+    average_confidence: float
+    weak_line_count: int
+    backend: str
 
 
 def to_jsonable(value: Any) -> Any:

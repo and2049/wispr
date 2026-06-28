@@ -1,5 +1,5 @@
 from wispr.models import AlignedWord
-from wispr.segment import segment_lines
+from wispr.segment import segment_lines, summarize_alignment
 
 
 def test_segment_lines_uses_first_word_timestamp() -> None:
@@ -25,3 +25,26 @@ def test_weak_confidence_generates_warning() -> None:
     assert warnings[0].line_number == 1
     assert warnings[0].confidence == 0.4
     assert warnings[0].timestamp_source == "mock"
+
+
+def test_alignment_summary_counts_words_and_skips() -> None:
+    words = (
+        AlignedWord("hello", start=0.0, end=0.2, confidence=0.8),
+        AlignedWord("world", start=0.3, end=0.5, confidence=0.6),
+    )
+    _, warnings = segment_lines(("hello world",), words)
+
+    summary = summarize_alignment(
+        ("hello world",),
+        words,
+        warnings,
+        backend="whisperx",
+        skipped_words=3,
+    )
+
+    assert summary.total_lyric_words == 2
+    assert summary.aligned_words == 2
+    assert summary.skipped_words == 3
+    assert summary.average_confidence == 0.7
+    assert summary.weak_line_count == 1
+    assert summary.backend == "whisperx"

@@ -5,7 +5,15 @@ import pytest
 
 from wispr.models import AlignmentConfig, TranscriptWord
 from wispr.transcribe import TranscriptionConfig, WhisperTranscriber, WhisperXAligner
-from wispr.whisperx_backend import aligned_words, canonical_segments, transcript_words
+from wispr.whisperx_backend import (
+    FFMPEG_MESSAGE,
+    aligned_words,
+    aligned_words_with_skips,
+    canonical_segments,
+    transcript_words,
+    transcript_words_with_skips,
+    validate_whisperx_runtime,
+)
 
 
 def test_transcription_config_defaults_are_cpu_safe() -> None:
@@ -54,6 +62,25 @@ def test_whisperx_segments_convert_to_transcript_words() -> None:
     assert words[0].source == "whisperx"
 
 
+def test_whisperx_transcript_conversion_counts_skipped_words() -> None:
+    words, skipped = transcript_words_with_skips(
+        {
+            "segments": [
+                {
+                    "words": [
+                        {"word": "hello", "start": 1, "end": 1.5},
+                        {"word": "missing-start", "end": 2},
+                        {"word": "", "start": 2, "end": 3},
+                    ]
+                },
+            ]
+        }
+    )
+
+    assert len(words) == 1
+    assert skipped == 2
+
+
 def test_whisperx_segments_convert_to_aligned_words() -> None:
     words = aligned_words(
         {
@@ -68,6 +95,32 @@ def test_whisperx_segments_convert_to_aligned_words() -> None:
     assert words[0].end == 2.25
     assert words[0].confidence == 0.9
     assert words[0].timestamp_source == "whisperx"
+
+
+def test_whisperx_alignment_conversion_counts_skipped_words() -> None:
+    words, skipped = aligned_words_with_skips(
+        {
+            "segments": [
+                {
+                    "words": [
+                        {"word": "hello", "start": 2, "end": 2.25},
+                        {"word": "missing-end", "start": 3},
+                    ]
+                },
+            ]
+        }
+    )
+
+    assert len(words) == 1
+    assert skipped == 1
+
+
+def test_whisperx_runtime_requires_ffmpeg(monkeypatch) -> None:
+    monkeypatch.setattr("wispr.whisperx_backend.import_whisperx", lambda: object())
+    monkeypatch.setattr("wispr.whisperx_backend.which", lambda name: None)
+
+    with pytest.raises(RuntimeError, match=FFMPEG_MESSAGE):
+        validate_whisperx_runtime()
 
 
 def test_canonical_segments_use_transcript_time_bounds() -> None:
@@ -113,6 +166,7 @@ def test_whisperx_transcriber_calls_backend_with_config(monkeypatch, tmp_path: P
     assert calls["load_audio"] == str(audio_path)
     assert calls["transcribe"] == ("audio", 2)
     assert words[0].text == "hello"
+    assert words[0].source == "whisperx"
 
 
 def test_whisperx_aligner_calls_backend_with_canonical_lyrics(monkeypatch, tmp_path: Path) -> None:

@@ -57,6 +57,21 @@ def test_pipeline_writes_lrc_and_debug_artifacts(tmp_path: Path) -> None:
     assert inputs["inputs"]["audio_path"] == str(audio.resolve())
     assert inputs["inputs"]["lyrics_path"] == str(lyrics.resolve())
     assert inputs["inputs"]["output_path"] == str((tmp_path / "song.lrc").resolve())
+    assert inputs["runtime"]["backend"] == "mock"
+    assert inputs["runtime"]["model_name"] == "base"
+    assert inputs["runtime"]["device"] == "cpu"
+    assert inputs["runtime"]["compute_type"] == "int8"
+    assert inputs["runtime"]["language"] == "en"
+
+    transcript = json.loads((result.debug_dir / "transcript.json").read_text(encoding="utf-8"))
+    alignment = json.loads((result.debug_dir / "alignment.json").read_text(encoding="utf-8"))
+    segments = json.loads((result.debug_dir / "segments.json").read_text(encoding="utf-8"))
+    assert transcript == {"raw": None, "normalized": [], "skipped_words": 0}
+    assert alignment["raw"] is None
+    assert alignment["normalized"][0]["text"] == "hello"
+    assert segments["summary"]["backend"] == "mock"
+    assert segments["summary"]["weak_line_count"] == len(result.warnings)
+    assert result.summary.backend == "mock"
 
 
 def test_pipeline_preserves_canonical_lyrics_text(tmp_path: Path) -> None:
@@ -76,3 +91,41 @@ def test_pipeline_preserves_canonical_lyrics_text(tmp_path: Path) -> None:
     )
 
     assert result.output_path.read_text(encoding="utf-8") == "[00:02.00]canonical lyric\n"
+
+
+def test_pipeline_debug_preserves_raw_backend_payloads(tmp_path: Path) -> None:
+    audio = tmp_path / "song.wav"
+    lyrics = tmp_path / "lyrics.txt"
+    audio.write_bytes(b"mock")
+    lyrics.write_text("canonical lyric\n", encoding="utf-8")
+
+    class RawTranscriber:
+        last_raw_result = {"segments": [{"text": "heard lyric"}]}
+        skipped_words = 2
+
+        def transcribe(self, audio_path):
+            return ()
+
+    class RawAligner:
+        last_raw_result = {"segments": [{"words": [{"word": "canonical"}]}]}
+        skipped_words = 1
+
+        def align(self, transcript, lyric_lines, audio_path=None):
+            return (AlignedWord("canonical", start=2.0, end=2.5, confidence=0.9),)
+
+    result = run(
+        audio,
+        lyrics,
+        debug=True,
+        backends=PipelineBackends(transcriber=RawTranscriber(), aligner=RawAligner()),
+    )
+
+    transcript = json.loads((result.debug_dir / "transcript.json").read_text(encoding="utf-8"))
+    alignment = json.loads((result.debug_dir / "alignment.json").read_text(encoding="utf-8"))
+    segments = json.loads((result.debug_dir / "segments.json").read_text(encoding="utf-8"))
+
+    assert transcript["raw"] == {"segments": [{"text": "heard lyric"}]}
+    assert transcript["skipped_words"] == 2
+    assert alignment["raw"] == {"segments": [{"words": [{"word": "canonical"}]}]}
+    assert alignment["skipped_words"] == 1
+    assert segments["summary"]["skipped_words"] == 3

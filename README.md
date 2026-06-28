@@ -29,6 +29,7 @@ Initial flags:
 - `--model`: WhisperX model name, defaulting to `base`
 - `--device`: runtime device, defaulting to `cpu`
 - `--compute-type`: WhisperX compute type, defaulting to `int8`
+- `--language`: WhisperX language code, defaulting to `en`
 
 ## Current milestone
 
@@ -47,6 +48,27 @@ wispr song.wav lyrics.txt --backend whisperx --model base --device cpu --compute
 
 The emitted `.lrc` still uses the supplied lyrics file as canonical text. WhisperX only
 provides timing evidence.
+
+For a local real-audio smoke run, place ignored files under `inputs/` and write outputs
+back under that ignored tree:
+
+For example:
+
+```bash
+uv run wispr inputs/03-giveon-twenties.flac inputs/lyrics.txt \
+  --backend whisperx \
+  --model base \
+  --device cpu \
+  --compute-type int8 \
+  --debug \
+  --force \
+  -o inputs/out/twenties.lrc
+```
+
+The WhisperX backend checks for both the optional Python dependency and `ffmpeg` before
+running. Debug output includes raw backend payloads, normalized dataclass state, and an
+alignment summary so failed or weak runs can be inspected without changing the `.lrc`
+contract.
 
 The code is organized around:
 
@@ -69,3 +91,6 @@ Slow ML tests should be marked with `pytest.mark.ml` and run explicitly:
 ```bash
 uv run pytest -m ml
 ```
+
+The local ML smoke test is skipped during the default test suite and only runs when the
+`inputs/` smoke files are present.

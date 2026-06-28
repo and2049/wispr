@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from wispr.models import AlignedWord, LyricLine, WisprWarning
+from wispr.models import AlignedWord, AlignmentSummary, LyricLine, WisprWarning
 
 WEAK_CONFIDENCE_THRESHOLD = 0.7
 
 
 def segment_lines(
+    lyrics: tuple[str, ...],
+    words: tuple[AlignedWord, ...],
+) -> tuple[tuple[LyricLine, ...], tuple[WisprWarning, ...]]:
+    return token_count_segment_lines(lyrics, words)
+
+
+def token_count_segment_lines(
     lyrics: tuple[str, ...],
     words: tuple[AlignedWord, ...],
 ) -> tuple[tuple[LyricLine, ...], tuple[WisprWarning, ...]]:
@@ -30,6 +37,28 @@ def segment_lines(
             )
 
     return tuple(lines), tuple(warnings)
+
+
+def summarize_alignment(
+    lyrics: tuple[str, ...],
+    words: tuple[AlignedWord, ...],
+    warnings: tuple[WisprWarning, ...],
+    *,
+    backend: str,
+    skipped_words: int = 0,
+) -> AlignmentSummary:
+    total_lyric_words = sum(len(line.split()) for line in lyrics)
+    average_confidence = (
+        round(sum(word.confidence for word in words) / len(words), 4) if words else 0.0
+    )
+    return AlignmentSummary(
+        total_lyric_words=total_lyric_words,
+        aligned_words=len(words),
+        skipped_words=skipped_words,
+        average_confidence=average_confidence,
+        weak_line_count=len(warnings),
+        backend=backend,
+    )
 
 
 def make_line(line_number: int, text: str, words: tuple[AlignedWord, ...]) -> LyricLine:
