@@ -1,0 +1,33 @@
+[project]
+name = "wispr"
+version = "0.1.0"
+description = "Generate line-level LRC files from audio and canonical lyrics."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "typer>=0.12",
+]
+
+[project.scripts]
+wispr = "wispr.cli:app"
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "ruff>=0.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
