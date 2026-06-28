@@ -71,11 +71,14 @@ def run(
     metadata = read_metadata(backends.metadata, inputs.audio_path)
     processing_audio = prepare_audio(backends.separator, inputs)
     transcript = transcribe_audio(backends.transcriber, processing_audio)
+    ensure_transcript_quality(backends.runtime.backend, transcript)
     alignment = align_lyrics(backends.aligner, transcript, lyrics, processing_audio)
+    ensure_alignment_quality(backends.runtime.backend, alignment)
     lines, warnings = segment_lines(lyrics, alignment)
     summary = summarize_alignment(
         lyrics,
         alignment,
+        lines,
         warnings,
         backend=backends.runtime.backend,
         skipped_words=skipped_word_count(backends.transcriber)
@@ -184,8 +187,23 @@ def debug_payload(normalized: object, backend: object) -> dict[str, object]:
         "raw": getattr(backend, "last_raw_result", None),
         "normalized": normalized,
         "skipped_words": skipped_word_count(backend),
+        "fallback_words": fallback_word_count(backend),
     }
 
 
 def skipped_word_count(backend: object) -> int:
     return int(getattr(backend, "skipped_words", 0))
+
+
+def fallback_word_count(backend: object) -> int:
+    return int(getattr(backend, "fallback_words", 0))
+
+
+def ensure_transcript_quality(backend: str, transcript: tuple[TranscriptWord, ...]) -> None:
+    if backend != "mock" and not transcript:
+        raise ValueError("Transcription produced no timed words.")
+
+
+def ensure_alignment_quality(backend: str, alignment: tuple[AlignedWord, ...]) -> None:
+    if backend != "mock" and not alignment:
+        raise ValueError("Alignment produced no timed words.")

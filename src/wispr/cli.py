@@ -55,6 +55,8 @@ def main(
         f"avg_confidence={result.summary.average_confidence:.2f} "
         f"weak_lines={result.summary.weak_line_count}"
     )
+    if result.summary.quality_warning:
+        typer.echo(f"warning: {result.summary.quality_warning}", err=True)
     for warning in result.warnings[:MAX_WARNING_LINES]:
         typer.echo(
             f"warning: line {warning.line_number} confidence={warning.confidence:.2f} "

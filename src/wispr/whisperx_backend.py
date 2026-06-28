@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import math
 import re
 import warnings
 from contextlib import redirect_stderr, redirect_stdout
@@ -53,6 +54,7 @@ class WhisperTranscriber:
         self.config = config or TranscriptionConfig()
         self.last_raw_result: dict[str, Any] | None = None
         self.skipped_words = 0
+        self.fallback_words = 0
 
     def transcribe(self, audio_path: Path) -> tuple[TranscriptWord, ...]:
         suppress_runtime_warnings()
@@ -71,8 +73,9 @@ class WhisperTranscriber:
         with redirect_stdout(stdout), redirect_stderr(stderr):
             result = model.transcribe(audio, batch_size=self.config.batch_size)
         self.last_raw_result = result
-        words, skipped = transcript_words_with_skips(result)
+        words, skipped, fallback = transcript_words_with_skips(result)
         self.skipped_words = skipped
+        self.fallback_words = fallback
         return words
 
 
@@ -81,6 +84,7 @@ class WhisperXAligner:
         self.config = config or AlignmentConfig()
         self.last_raw_result: dict[str, Any] | None = None
         self.skipped_words = 0
+        self.fallback_words = 0
 
     def align(
         self,
@@ -110,34 +114,41 @@ class WhisperXAligner:
                 return_char_alignments=self.config.return_char_alignments,
             )
         self.last_raw_result = result
-        words, skipped = aligned_words_with_skips(result)
+        words, skipped, fallback = aligned_words_with_skips(result)
         self.skipped_words = skipped
-        return words
+        self.fallback_words = fallback
+        return words or raw_transcript_alignment(transcript)
 
 
 def transcript_words(result: dict[str, Any]) -> tuple[TranscriptWord, ...]:
     return transcript_words_with_skips(result)[0]
 
 
-def transcript_words_with_skips(result: dict[str, Any]) -> tuple[tuple[TranscriptWord, ...], int]:
+def transcript_words_with_skips(
+    result: dict[str, Any],
+) -> tuple[tuple[TranscriptWord, ...], int, int]:
     words: list[TranscriptWord] = []
     skipped = 0
-    for word in iter_word_dicts(result):
+    fallback = 0
+    for segment, word in iter_segment_words(result):
         text = word.get("word") or word.get("text")
-        if not text or "start" not in word or "end" not in word:
+        start, end = word_times(word, segment)
+        if not text or start is None or end is None:
             skipped += 1
             continue
+        if "start" not in word or "end" not in word:
+            fallback += 1
         words.extend(
             split_transcript_word(
                 str(text).strip(),
-                start=float(word["start"]),
-                end=float(word["end"]),
-                confidence=float(word.get("score", word.get("confidence", 1.0))),
+                start=start,
+                end=end,
+                confidence=word_confidence(word),
                 source="whisperx",
             )
         )
     if words:
-        return tuple(words), skipped
+        return tuple(words), skipped, fallback
 
     for segment in result.get("segments", []):
         text = str(segment.get("text", "")).strip()
@@ -148,35 +159,41 @@ def transcript_words_with_skips(result: dict[str, Any]) -> tuple[tuple[Transcrip
                 text=text,
                 start=float(segment["start"]),
                 end=float(segment["end"]),
-                confidence=float(segment.get("avg_logprob", 1.0)),
+                confidence=logprob_confidence(segment.get("avg_logprob")),
                 source="whisperx-segment",
             )
         )
-    return tuple(words), skipped
+    return tuple(words), skipped, fallback
 
 
 def aligned_words(result: dict[str, Any]) -> tuple[AlignedWord, ...]:
     return aligned_words_with_skips(result)[0]
 
 
-def aligned_words_with_skips(result: dict[str, Any]) -> tuple[tuple[AlignedWord, ...], int]:
+def aligned_words_with_skips(
+    result: dict[str, Any],
+) -> tuple[tuple[AlignedWord, ...], int, int]:
     words: list[AlignedWord] = []
     skipped = 0
-    for word in iter_word_dicts(result):
+    fallback = 0
+    for segment, word in iter_segment_words(result):
         text = word.get("word") or word.get("text")
-        if not text or "start" not in word or "end" not in word:
+        start, end = word_times(word, segment)
+        if not text or start is None or end is None:
             skipped += 1
             continue
+        if "start" not in word or "end" not in word:
+            fallback += 1
         words.extend(
             split_aligned_word(
                 str(text).strip(),
-                start=float(word["start"]),
-                end=float(word["end"]),
-                confidence=float(word.get("score", word.get("confidence", 1.0))),
-                timestamp_source="whisperx",
+                start=start,
+                end=end,
+                confidence=word_confidence(word),
+                timestamp_source="whisperx" if "start" in word and "end" in word else "whisperx-segment",
             )
         )
-    return tuple(words), skipped
+    return tuple(words), skipped, fallback
 
 
 def canonical_segments(
@@ -193,11 +210,45 @@ def canonical_segments(
     return [segment]
 
 
-def iter_word_dicts(result: dict[str, Any]) -> list[dict[str, Any]]:
-    words: list[dict[str, Any]] = []
+def iter_segment_words(result: dict[str, Any]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    words: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for segment in result.get("segments", []):
-        words.extend(segment.get("words", []))
+        words.extend((segment, word) for word in segment.get("words", []))
     return words
+
+
+def word_times(word: dict[str, Any], segment: dict[str, Any]) -> tuple[float | None, float | None]:
+    start = word.get("start", segment.get("start"))
+    end = word.get("end", segment.get("end"))
+    if start is None or end is None:
+        return None, None
+    return float(start), float(end)
+
+
+def word_confidence(word: dict[str, Any], default: float = 0.5) -> float:
+    value = word.get("score", word.get("confidence"))
+    if value is None:
+        return default
+    return max(0.0, min(float(value), 1.0))
+
+
+def logprob_confidence(value: Any, default: float = 0.5) -> float:
+    if value is None:
+        return default
+    return max(0.0, min(math.exp(float(value)), 1.0))
+
+
+def raw_transcript_alignment(transcript: tuple[TranscriptWord, ...]) -> tuple[AlignedWord, ...]:
+    return tuple(
+        AlignedWord(
+            text=word.text,
+            start=word.start,
+            end=word.end,
+            confidence=word.confidence,
+            timestamp_source="raw-whisper",
+        )
+        for word in transcript
+    )
 
 
 def split_transcript_word(

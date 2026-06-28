@@ -67,8 +67,9 @@ def test_pipeline_writes_lrc_and_debug_artifacts(tmp_path: Path) -> None:
     transcript = json.loads((result.debug_dir / "transcript.json").read_text(encoding="utf-8"))
     alignment = json.loads((result.debug_dir / "alignment.json").read_text(encoding="utf-8"))
     segments = json.loads((result.debug_dir / "segments.json").read_text(encoding="utf-8"))
-    assert transcript == {"raw": None, "normalized": [], "skipped_words": 0}
+    assert transcript == {"raw": None, "normalized": [], "skipped_words": 0, "fallback_words": 0}
     assert alignment["raw"] is None
+    assert alignment["fallback_words"] == 0
     assert alignment["normalized"][0]["text"] == "hello"
     assert segments["summary"]["backend"] == "mock"
     assert segments["summary"]["weak_line_count"] == len(result.warnings)
@@ -103,6 +104,7 @@ def test_pipeline_debug_preserves_raw_backend_payloads(tmp_path: Path) -> None:
     class RawTranscriber:
         last_raw_result = {"segments": [{"text": "heard lyric"}]}
         skipped_words = 2
+        fallback_words = 1
 
         def transcribe(self, audio_path):
             return ()
@@ -110,6 +112,7 @@ def test_pipeline_debug_preserves_raw_backend_payloads(tmp_path: Path) -> None:
     class RawAligner:
         last_raw_result = {"segments": [{"words": [{"word": "canonical"}]}]}
         skipped_words = 1
+        fallback_words = 2
 
         def align(self, transcript, lyric_lines, audio_path=None):
             return (AlignedWord("canonical", start=2.0, end=2.5, confidence=0.9),)
@@ -127,6 +130,29 @@ def test_pipeline_debug_preserves_raw_backend_payloads(tmp_path: Path) -> None:
 
     assert transcript["raw"] == {"segments": [{"text": "heard lyric"}]}
     assert transcript["skipped_words"] == 2
+    assert transcript["fallback_words"] == 1
     assert alignment["raw"] == {"segments": [{"words": [{"word": "canonical"}]}]}
     assert alignment["skipped_words"] == 1
+    assert alignment["fallback_words"] == 2
     assert segments["summary"]["skipped_words"] == 3
+
+
+def test_pipeline_rejects_empty_real_backend_transcript(tmp_path: Path) -> None:
+    audio = tmp_path / "song.wav"
+    lyrics = tmp_path / "lyrics.txt"
+    audio.write_bytes(b"mock")
+    lyrics.write_text("canonical lyric\n", encoding="utf-8")
+
+    class EmptyTranscriber:
+        def transcribe(self, audio_path):
+            return ()
+
+    with pytest.raises(ValueError, match="Transcription produced no timed words"):
+        run(
+            audio,
+            lyrics,
+            backends=PipelineBackends(
+                transcriber=EmptyTranscriber(),
+                runtime=PipelineBackends().runtime.__class__(backend="whisperx"),
+            ),
+        )

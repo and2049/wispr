@@ -76,6 +76,10 @@ class LyricLine:
     start: float = 0.0
     confidence: float = 0.0
     timestamp_source: str = "unaligned"
+    expected_tokens: int = 0
+    matched_tokens: int = 0
+    fuzzy_matches: int = 0
+    interpolated: bool = False
 
 
 @dataclass(frozen=True)
@@ -100,6 +104,13 @@ class AlignmentSummary:
     average_confidence: float
     weak_line_count: int
     backend: str
+    alignment_coverage: float = 0.0
+    unmatched_lyric_tokens: int = 0
+    unmatched_backend_tokens: int = 0
+    fuzzy_matches: int = 0
+    interpolated_lines: int = 0
+    timestamp_sources: dict[str, int] = field(default_factory=dict)
+    quality_warning: str | None = None
 
 
 def to_jsonable(value: Any) -> Any:

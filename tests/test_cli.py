@@ -131,3 +131,36 @@ def test_cli_truncates_warning_output(monkeypatch, tmp_path: Path) -> None:
     assert "warning: line 5" in result.stderr
     assert "warning: line 6" not in result.stderr
     assert "... 2 more warnings" in result.stderr
+
+
+def test_cli_prints_quality_warning(monkeypatch, tmp_path: Path) -> None:
+    audio = tmp_path / "song.wav"
+    lyrics = tmp_path / "lyrics.txt"
+    output = tmp_path / "song.lrc"
+    audio.write_bytes(b"mock")
+    lyrics.write_text("hello\n", encoding="utf-8")
+
+    def fake_run(audio_path, lyrics_path, **kwargs):
+        output.write_text("[00:00.00]hello\n", encoding="utf-8")
+        return SimpleNamespace(
+            output_path=output,
+            debug_dir=None,
+            warnings=(),
+            summary=AlignmentSummary(
+                total_lyric_words=4,
+                aligned_words=1,
+                skipped_words=0,
+                average_confidence=0.5,
+                weak_line_count=0,
+                backend="whisperx",
+                quality_warning="Low lyric coverage: matched 1/4 lyric tokens.",
+            ),
+        )
+
+    monkeypatch.setattr("wispr.cli.run", fake_run)
+    monkeypatch.setattr("wispr.cli.build_backends", lambda *args, **kwargs: None)
+
+    result = CliRunner().invoke(app, [str(audio), str(lyrics)])
+
+    assert result.exit_code == 0
+    assert "Low lyric coverage" in result.stderr

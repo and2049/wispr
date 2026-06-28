@@ -84,7 +84,7 @@ def test_whisperx_transcript_splits_merged_words() -> None:
 
 
 def test_whisperx_transcript_conversion_counts_skipped_words() -> None:
-    words, skipped = transcript_words_with_skips(
+    words, skipped, fallback = transcript_words_with_skips(
         {
             "segments": [
                 {
@@ -100,23 +100,25 @@ def test_whisperx_transcript_conversion_counts_skipped_words() -> None:
 
     assert len(words) == 1
     assert skipped == 2
+    assert fallback == 0
 
 
 def test_whisperx_transcript_falls_back_to_segment_timing() -> None:
-    words, skipped = transcript_words_with_skips(
+    words, skipped, fallback = transcript_words_with_skips(
         {
             "segments": [
-                {"text": "heard lyric", "start": 1.25, "end": 2.75, "avg_logprob": 0.6},
+                {"text": "heard lyric", "start": 1.25, "end": 2.75, "avg_logprob": -0.5},
             ]
         }
     )
 
     assert skipped == 0
+    assert fallback == 0
     assert len(words) == 1
     assert words[0].text == "heard lyric"
     assert words[0].start == 1.25
     assert words[0].end == 2.75
-    assert words[0].confidence == 0.6
+    assert round(words[0].confidence, 4) == 0.6065
     assert words[0].source == "whisperx-segment"
 
 
@@ -153,7 +155,7 @@ def test_whisperx_alignment_splits_merged_words() -> None:
 
 
 def test_whisperx_alignment_conversion_counts_skipped_words() -> None:
-    words, skipped = aligned_words_with_skips(
+    words, skipped, fallback = aligned_words_with_skips(
         {
             "segments": [
                 {
@@ -168,6 +170,27 @@ def test_whisperx_alignment_conversion_counts_skipped_words() -> None:
 
     assert len(words) == 1
     assert skipped == 1
+    assert fallback == 0
+
+
+def test_whisperx_alignment_falls_back_to_segment_timing() -> None:
+    words, skipped, fallback = aligned_words_with_skips(
+        {
+            "segments": [
+                {
+                    "start": 3.0,
+                    "end": 4.0,
+                    "words": [{"word": "hello"}],
+                },
+            ]
+        }
+    )
+
+    assert skipped == 0
+    assert fallback == 1
+    assert words[0].start == 3.0
+    assert words[0].end == 4.0
+    assert words[0].timestamp_source == "whisperx-segment"
 
 
 def test_whisperx_runtime_requires_ffmpeg(monkeypatch) -> None:
@@ -295,3 +318,21 @@ def test_whisperx_aligner_calls_backend_with_canonical_lyrics(monkeypatch, tmp_p
     assert calls["align"][0] == [{"text": "canonical line", "start": 1.0, "end": 3.0}]
     assert calls["align"][3] == "audio"
     assert words[0].text == "canonical"
+
+
+def test_whisperx_aligner_falls_back_to_raw_transcript(monkeypatch, tmp_path: Path) -> None:
+    fake_whisperx = SimpleNamespace(
+        load_align_model=lambda language_code, device: ("model", "metadata"),
+        load_audio=lambda path: "audio",
+        align=lambda *args, **kwargs: {"segments": [{"words": [{"word": "missing"}]}]},
+    )
+    monkeypatch.setattr("wispr.whisperx_backend.import_whisperx", lambda: fake_whisperx)
+
+    words = WhisperXAligner().align(
+        (TranscriptWord("heard", start=1.0, end=2.0, confidence=0.7),),
+        ("canonical",),
+        tmp_path / "song.wav",
+    )
+
+    assert words[0].text == "heard"
+    assert words[0].timestamp_source == "raw-whisper"
