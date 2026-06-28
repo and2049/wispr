@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --dev --locked
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Test
+        run: uv run pytest
+
+      - name: Benchmark smoke
+        run: |
+          mkdir -p "$RUNNER_TEMP/wispr-ci"
+          uv run wispr benchmark tests/fixtures/jingle_bells.m4a tests/fixtures/jingle_bells.txt \
+            --backend mock \
+            --debug \
+            --force \
+            -o "$RUNNER_TEMP/wispr-ci/jingle_bells.lrc" \
+            --report "$RUNNER_TEMP/wispr-ci/jingle_bells.benchmark.json"
+          test -f "$RUNNER_TEMP/wispr-ci/jingle_bells.lrc"
+          test -f "$RUNNER_TEMP/wispr-ci/jingle_bells.benchmark.json"
+          test -f "$RUNNER_TEMP/wispr-ci/jingle_bells.debug/timings.json"
+
+      - name: Build package
+        run: uv build

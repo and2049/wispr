@@ -137,6 +137,7 @@ The code is organized around:
 uv sync --dev
 uv run pytest
 uv run ruff check .
+uv build
 ```
 
 Slow ML tests should be marked with `pytest.mark.ml` and run explicitly:
@@ -147,3 +148,12 @@ uv run pytest -m ml
 
 The local ML smoke test is skipped during the default test suite and only runs when the
 `inputs/` smoke files are present.
+
+GitHub Actions runs linting, tests, a package build, and a mock benchmark smoke test on
+Python 3.11 and 3.12. The committed Jingle Bells fixture under `tests/fixtures/` is
+public-domain material used to exercise real file handling without requiring WhisperX,
+Demucs, Torch, ffmpeg, or model downloads in normal CI.
+
+Real WhisperX benchmarking is available through the manual `Manual ML Benchmark`
+workflow. It installs `ffmpeg` and the `ml` extra, runs against the same fixture, and
+uploads the `.lrc`, debug files, and benchmark report as workflow artifacts.

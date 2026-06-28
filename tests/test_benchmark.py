@@ -9,6 +9,8 @@ from wispr.benchmark import (
     run_benchmark,
 )
 
+FIXTURES = Path(__file__).parent / "fixtures"
+
 
 def test_benchmark_mock_writes_lrc_and_report(tmp_path: Path) -> None:
     audio = tmp_path / "song.wav"
@@ -65,3 +67,27 @@ def test_batch_benchmark_mock_writes_outputs_and_report(tmp_path: Path) -> None:
     report = json.loads(result.report_path.read_text(encoding="utf-8"))
     assert report["batch"]["succeeded"] == 2
     assert report["runtimes"]["en"]["backend"] == "mock"
+
+
+def test_benchmark_mock_uses_committed_public_domain_fixture(tmp_path: Path) -> None:
+    output = tmp_path / "jingle_bells.lrc"
+    report_path = tmp_path / "jingle_bells.benchmark.json"
+
+    result = run_benchmark(
+        FIXTURES / "jingle_bells.m4a",
+        FIXTURES / "jingle_bells.txt",
+        output_path=output,
+        report_path=report_path,
+        backend=BackendName.mock,
+        debug=True,
+        force=True,
+    )
+
+    lrc = output.read_text(encoding="utf-8")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert result.debug_dir
+    assert "[00:00.00]Dashing through the snow" in lrc
+    assert report["runtime"]["backend"] == "mock"
+    assert report["stage_timings"]["benchmark_total"] > 0
+    assert (result.debug_dir / "timings.json").exists()

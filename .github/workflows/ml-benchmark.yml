@@ -1,0 +1,66 @@
+name: Manual ML Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: WhisperX model name
+        required: true
+        default: base
+      device:
+        description: Runtime device
+        required: true
+        default: cpu
+      compute-type:
+        description: WhisperX compute type
+        required: true
+        default: int8
+
+jobs:
+  whisperx-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install ML dependencies
+        run: uv sync --dev --extra ml --locked
+
+      - name: Run WhisperX benchmark
+        run: |
+          mkdir -p "$RUNNER_TEMP/wispr-ml"
+          uv run wispr benchmark tests/fixtures/jingle_bells.m4a tests/fixtures/jingle_bells.txt \
+            --backend whisperx \
+            --model "${{ inputs.model }}" \
+            --device "${{ inputs.device }}" \
+            --compute-type "${{ inputs['compute-type'] }}" \
+            --debug \
+            --force \
+            -o "$RUNNER_TEMP/wispr-ml/jingle_bells.lrc" \
+            --report "$RUNNER_TEMP/wispr-ml/jingle_bells.benchmark.json"
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wispr-ml-benchmark
+          path: |
+            ${{ runner.temp }}/wispr-ml/*.lrc
+            ${{ runner.temp }}/wispr-ml/*.benchmark.json
+            ${{ runner.temp }}/wispr-ml/*.debug/**
