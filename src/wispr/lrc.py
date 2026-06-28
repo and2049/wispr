@@ -21,5 +21,9 @@ def metadata_tags(metadata: TrackMetadata) -> list[str]:
 
 def serialize_lrc(document: LrcDocument) -> str:
     lines = metadata_tags(document.metadata)
-    lines.extend(f"[{format_timestamp(line.start)}]{line.text}" for line in document.lines)
+    lines.extend(
+        f"[{format_timestamp(line.start)}]{line.text}"
+        for line in document.lines
+        if line.text != ""
+    )
     return "\n".join(lines) + "\n"

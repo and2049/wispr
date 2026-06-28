@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from wispr.models import AlignedWord, TrackMetadata, TranscriptWord
+from wispr.segment import lyric_tokens
 
 
 class MetadataReader(Protocol):
@@ -53,7 +54,7 @@ class MockAligner:
         words: list[AlignedWord] = []
         for line_index, line in enumerate(lyrics):
             start = line_index * 4.0
-            tokens = line.split() or [""]
+            tokens = lyric_tokens(line)
             for token_index, token in enumerate(tokens):
                 confidence = 0.55 if line_index == 0 and token_index == 0 else 0.95
                 words.append(

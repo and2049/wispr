@@ -9,6 +9,7 @@ from wispr.backend_factory import BackendName, build_backends
 from wispr.pipeline import run
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
+MAX_WARNING_LINES = 5
 
 
 @app.command()
@@ -54,7 +55,7 @@ def main(
         f"avg_confidence={result.summary.average_confidence:.2f} "
         f"weak_lines={result.summary.weak_line_count}"
     )
-    for warning in result.warnings:
+    for warning in result.warnings[:MAX_WARNING_LINES]:
         typer.echo(
             f"warning: line {warning.line_number} confidence={warning.confidence:.2f} "
             f"source={warning.timestamp_source}: {warning.message}",
@@ -62,3 +63,6 @@ def main(
         )
     if result.debug_dir:
         typer.echo(f"Debug artifacts: {result.debug_dir}")
+    remaining_warnings = len(result.warnings) - MAX_WARNING_LINES
+    if remaining_warnings > 0:
+        typer.echo(f"... {remaining_warnings} more warnings", err=True)

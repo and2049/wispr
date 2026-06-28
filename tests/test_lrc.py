@@ -22,3 +22,15 @@ def test_serialize_lrc_omits_empty_metadata() -> None:
     )
 
     assert serialize_lrc(document) == "[ti:Song]\n[00:00.00]hello\n"
+
+
+def test_serialize_lrc_skips_blank_lyric_lines() -> None:
+    document = LrcDocument(
+        lines=(
+            LyricLine(line_number=1, text="hello", start=1.0),
+            LyricLine(line_number=2, text="", start=0.0),
+            LyricLine(line_number=3, text="world", start=2.0),
+        )
+    )
+
+    assert serialize_lrc(document) == "[00:01.00]hello\n[00:02.00]world\n"

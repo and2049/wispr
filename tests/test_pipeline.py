@@ -46,7 +46,7 @@ def test_pipeline_writes_lrc_and_debug_artifacts(tmp_path: Path) -> None:
         "[00:00.00]hello world",
         "[00:04.00]next line",
     ]
-    assert result.warnings
+    assert result.warnings == ()
     assert result.debug_dir
     assert (result.debug_dir / "inputs.json").exists()
     assert (result.debug_dir / "transcript.json").exists()
@@ -62,6 +62,7 @@ def test_pipeline_writes_lrc_and_debug_artifacts(tmp_path: Path) -> None:
     assert inputs["runtime"]["device"] == "cpu"
     assert inputs["runtime"]["compute_type"] == "int8"
     assert inputs["runtime"]["language"] == "en"
+    assert inputs["runtime"]["vad_method"] == "silero"
 
     transcript = json.loads((result.debug_dir / "transcript.json").read_text(encoding="utf-8"))
     alignment = json.loads((result.debug_dir / "alignment.json").read_text(encoding="utf-8"))

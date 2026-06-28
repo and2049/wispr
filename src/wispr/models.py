@@ -30,6 +30,7 @@ class BackendRuntimeConfig:
     device: str = "cpu"
     compute_type: str = "int8"
     language: str = "en"
+    vad_method: str = "silero"
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class TranscriptionConfig:
     compute_type: str = "int8"
     batch_size: int = 4
     language: str = "en"
+    vad_method: str = "silero"
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 from wispr.cli import app
-from wispr.models import AlignmentSummary
+from wispr.models import AlignmentSummary, WisprWarning
 
 
 def test_cli_writes_lrc(tmp_path: Path) -> None:
@@ -88,3 +88,46 @@ def test_cli_backend_whisperx_wires_backend_factory(monkeypatch, tmp_path: Path)
     assert calls["device"] == "cpu"
     assert calls["compute_type"] == "int8"
     assert calls["language"] == "en"
+
+
+def test_cli_truncates_warning_output(monkeypatch, tmp_path: Path) -> None:
+    audio = tmp_path / "song.wav"
+    lyrics = tmp_path / "lyrics.txt"
+    output = tmp_path / "song.lrc"
+    audio.write_bytes(b"mock")
+    lyrics.write_text("hello\n", encoding="utf-8")
+
+    def fake_run(audio_path, lyrics_path, **kwargs):
+        output.write_text("[00:00.00]hello\n", encoding="utf-8")
+        return SimpleNamespace(
+            output_path=output,
+            debug_dir=tmp_path / "song.debug",
+            warnings=tuple(
+                WisprWarning(
+                    line_number=index,
+                    confidence=0.1,
+                    timestamp_source="whisperx",
+                    message=f"warning {index}",
+                )
+                for index in range(1, 8)
+            ),
+            summary=AlignmentSummary(
+                total_lyric_words=1,
+                aligned_words=1,
+                skipped_words=0,
+                average_confidence=1.0,
+                weak_line_count=7,
+                backend="whisperx",
+            ),
+        )
+
+    monkeypatch.setattr("wispr.cli.run", fake_run)
+    monkeypatch.setattr("wispr.cli.build_backends", lambda *args, **kwargs: None)
+
+    result = CliRunner().invoke(app, [str(audio), str(lyrics)])
+
+    assert result.exit_code == 0
+    assert "warning: line 1" in result.stderr
+    assert "warning: line 5" in result.stderr
+    assert "warning: line 6" not in result.stderr
+    assert "... 2 more warnings" in result.stderr
