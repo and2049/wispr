@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 from wispr.cli import app
-from wispr.models import AlignmentSummary, WisprWarning
+from wispr.models import AlignmentSummary, BenchmarkBatchResult, BenchmarkRunResult, WisprWarning
 
 
 def test_cli_writes_lrc(tmp_path: Path) -> None:
@@ -252,3 +252,163 @@ def test_cli_batch_wires_batch_runner(monkeypatch, tmp_path: Path) -> None:
     assert calls["debug"] is True
     assert calls["force"] is True
     assert "Batch summary" in result.stdout
+
+
+def test_cli_benchmark_mock_writes_report(tmp_path: Path) -> None:
+    audio = tmp_path / "song.wav"
+    lyrics = tmp_path / "lyrics.txt"
+    audio.write_bytes(b"mock")
+    lyrics.write_text("hello\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["benchmark", str(audio), str(lyrics)])
+
+    assert result.exit_code == 0
+    assert "Benchmark report" in result.stdout
+    assert (tmp_path / "song.lrc").exists()
+    assert (tmp_path / "song.benchmark.json").exists()
+
+
+def test_cli_batch_benchmark_mock_writes_report(tmp_path: Path) -> None:
+    audio = tmp_path / "song.wav"
+    lyrics = tmp_path / "lyrics.txt"
+    manifest = tmp_path / "manifest.csv"
+    audio.write_bytes(b"mock")
+    lyrics.write_text("hello\n", encoding="utf-8")
+    manifest.write_text("audio,lyrics,output\nsong.wav,lyrics.txt,song.lrc\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["benchmark", "batch", str(manifest)])
+
+    assert result.exit_code == 0
+    assert "Benchmark report" in result.stdout
+    assert (tmp_path / "song.lrc").exists()
+    assert (tmp_path / "manifest.benchmark.json").exists()
+
+
+def test_cli_benchmark_whisperx_wires_runtime_flags(monkeypatch, tmp_path: Path) -> None:
+    audio = tmp_path / "song.wav"
+    lyrics = tmp_path / "lyrics.txt"
+    output = tmp_path / "song.lrc"
+    report = tmp_path / "report.json"
+    calls = {}
+
+    def fake_run_benchmark(audio_path, lyrics_path, **kwargs):
+        calls["audio_path"] = audio_path
+        calls["lyrics_path"] = lyrics_path
+        calls.update(kwargs)
+        return BenchmarkRunResult(
+            report_path=report,
+            command={},
+            runtime=None,
+            output_path=output,
+            debug_dir=None,
+            summary=AlignmentSummary(
+                total_lyric_words=1,
+                aligned_words=1,
+                skipped_words=0,
+                average_confidence=1.0,
+                weak_line_count=0,
+                backend="whisperx",
+            ),
+            warnings=(),
+            stage_timings={"benchmark_total": 0.1},
+            total_seconds=0.1,
+        )
+
+    monkeypatch.setattr("wispr.cli.run_benchmark", fake_run_benchmark)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "benchmark",
+            str(audio),
+            str(lyrics),
+            "--backend",
+            "whisperx",
+            "--model",
+            "small",
+            "--device",
+            "cuda",
+            "--compute-type",
+            "float16",
+            "--batch-size",
+            "16",
+            "--language",
+            "es",
+            "--demucs",
+            "--debug",
+            "--force",
+            "-o",
+            str(output),
+            "--report",
+            str(report),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls["backend"].value == "whisperx"
+    assert calls["model_name"] == "small"
+    assert calls["device"] == "cuda"
+    assert calls["compute_type"] == "float16"
+    assert calls["batch_size"] == 16
+    assert calls["language"] == "es"
+    assert calls["demucs"] is True
+    assert calls["debug"] is True
+    assert calls["force"] is True
+    assert calls["output_path"] == output
+    assert calls["report_path"] == report
+
+
+def test_cli_batch_benchmark_wires_runner(monkeypatch, tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.csv"
+    report = tmp_path / "manifest.benchmark.json"
+    summary = tmp_path / "manifest.summary.json"
+    manifest.write_text("audio,lyrics\nsong.wav,lyrics.txt\n", encoding="utf-8")
+    calls = {}
+
+    def fake_run_batch_benchmark(manifest_path, **kwargs):
+        calls["manifest_path"] = manifest_path
+        calls.update(kwargs)
+        return BenchmarkBatchResult(
+            report_path=report,
+            command={},
+            runtimes={},
+            batch=SimpleNamespace(
+                manifest_path=manifest,
+                summary_path=summary,
+                total_jobs=1,
+                succeeded=1,
+                failed=0,
+                stage_timings={"batch_total": 0.2},
+                jobs=(),
+            ),
+            stage_timings={"benchmark_total": 0.2},
+            total_seconds=0.2,
+        )
+
+    monkeypatch.setattr("wispr.cli.run_batch_benchmark", fake_run_batch_benchmark)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "benchmark",
+            "batch",
+            str(manifest),
+            "--backend",
+            "whisperx",
+            "--device",
+            "auto",
+            "--compute-type",
+            "auto",
+            "--batch-size",
+            "8",
+            "--report",
+            str(report),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls["manifest_path"] == manifest
+    assert calls["backend"].value == "whisperx"
+    assert calls["batch_size"] == 8
+    assert calls["report_path"] == report
+    assert "Benchmark batch" in result.stdout

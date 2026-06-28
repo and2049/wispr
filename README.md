@@ -77,6 +77,17 @@ Batch runs are sequential in one process so WhisperX models can be reused
 without oversubscribing the GPU. Each run writes a `*.summary.json` file beside
 the manifest with per-row status and stage timings.
 
+Benchmark commands wrap the same pipeline and write a JSON report with runtime
+configuration, alignment quality, warnings, stage timings, and total wall time.
+
+```bash
+wispr benchmark song.wav lyrics.txt --backend whisperx --device auto --compute-type auto --debug --force
+wispr benchmark batch manifest.csv --backend whisperx --device auto --compute-type auto --debug --force
+```
+
+Single-song benchmark reports default to `<output-stem>.benchmark.json`. Batch
+benchmark reports default to `<manifest-stem>.benchmark.json`.
+
 The emitted `.lrc` still uses the supplied lyrics file as canonical text. WhisperX only
 provides timing evidence.
 
@@ -97,6 +108,14 @@ uv run wispr inputs/03-giveon-twenties.flac inputs/lyrics.txt \
   -o inputs/out/twenties.lrc
 ```
 
+For local performance comparisons:
+
+```bash
+uv run wispr benchmark inputs/03-giveon-twenties.flac inputs/lyrics.txt --backend whisperx --device auto --compute-type auto --debug --force -o inputs/out/twenties.lrc
+uv run wispr benchmark inputs/03-giveon-twenties.flac inputs/lyrics.txt --backend whisperx --demucs --device auto --compute-type auto --debug --force -o inputs/out/twenties-demucs.lrc
+uv run wispr benchmark batch inputs/manifest.csv --backend whisperx --device auto --compute-type auto --debug --force
+```
+
 The WhisperX backend checks for both the optional Python dependency and `ffmpeg` before
 running. Debug output includes raw backend payloads, normalized dataclass state, and an
 alignment summary so failed or weak runs can be inspected without changing the `.lrc`
@@ -110,6 +129,7 @@ The code is organized around:
 - debug artifacts that mirror internal pipeline state
 - structured warnings for weak alignment
 - batch summaries and stage timings for runtime profiling
+- benchmark reports for repeatable performance comparisons
 
 ## Development
 

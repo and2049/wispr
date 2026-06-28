@@ -9,7 +9,8 @@ from typer.core import TyperGroup
 
 from wispr.backend_factory import BackendName, build_backends
 from wispr.batch import run_batch as run_batch_manifest
-from wispr.models import BatchRunResult
+from wispr.benchmark import run_batch_benchmark, run_benchmark
+from wispr.models import BatchRunResult, BenchmarkBatchResult, BenchmarkRunResult
 from wispr.pipeline import run
 
 
@@ -103,6 +104,63 @@ def batch_command(
     print_batch_result(result)
 
 
+@app.command("benchmark")
+def benchmark_command(
+    target: Annotated[str, typer.Argument(help="Audio path, or 'batch'.")],
+    lyrics_or_manifest: Annotated[Path, typer.Argument(help="Lyrics path, or batch manifest.")],
+    output: Annotated[Path | None, typer.Option("-o", "--output")] = None,
+    report: Annotated[Path | None, typer.Option("--report")] = None,
+    force: Annotated[bool, typer.Option("--force")] = False,
+    debug: Annotated[bool, typer.Option("--debug")] = False,
+    demucs: Annotated[bool, typer.Option("--demucs")] = False,
+    backend: Annotated[BackendName, typer.Option("--backend")] = BackendName.mock,
+    model: Annotated[str, typer.Option("--model")] = "base",
+    device: Annotated[str, typer.Option("--device")] = "auto",
+    compute_type: Annotated[str, typer.Option("--compute-type")] = "auto",
+    batch_size: Annotated[int | None, typer.Option("--batch-size")] = None,
+    language: Annotated[str, typer.Option("--language")] = "en",
+) -> None:
+    try:
+        if target == "batch":
+            if output is not None:
+                raise ValueError("-o/--output is only valid for single-song benchmarks.")
+            result = run_batch_benchmark(
+                lyrics_or_manifest,
+                report_path=report,
+                backend=backend,
+                model_name=model,
+                device=device,
+                compute_type=compute_type,
+                batch_size=batch_size,
+                language=language,
+                demucs=demucs,
+                force=force,
+                debug=debug,
+            )
+            print_batch_benchmark_result(result)
+            return
+
+        result = run_benchmark(
+            Path(target),
+            lyrics_or_manifest,
+            output_path=output,
+            report_path=report,
+            backend=backend,
+            model_name=model,
+            device=device,
+            compute_type=compute_type,
+            batch_size=batch_size,
+            language=language,
+            demucs=demucs,
+            force=force,
+            debug=debug,
+        )
+    except (FileExistsError, FileNotFoundError, RuntimeError, ValueError) as error:
+        raise typer.BadParameter(str(error)) from error
+
+    print_benchmark_result(result)
+
+
 def print_run_result(result) -> None:
     typer.echo(f"Wrote {result.output_path}")
     typer.echo(
@@ -144,3 +202,26 @@ def print_batch_result(result: BatchRunResult) -> None:
         f"failed={result.failed} seconds={result.stage_timings.get('batch_total', 0.0):.2f}"
     )
     typer.echo(f"Batch summary file: {result.summary_path}")
+
+
+def print_benchmark_result(result: BenchmarkRunResult) -> None:
+    typer.echo(f"Wrote {result.output_path}")
+    typer.echo(f"Benchmark report: {result.report_path}")
+    typer.echo(
+        "Benchmark summary: "
+        f"seconds={result.total_seconds:.2f} "
+        f"backend={result.summary.backend} "
+        f"aligned={result.summary.aligned_words}/{result.summary.total_lyric_words} "
+        f"weak_lines={result.summary.weak_line_count}"
+    )
+    if result.debug_dir:
+        typer.echo(f"Debug artifacts: {result.debug_dir}")
+
+
+def print_batch_benchmark_result(result: BenchmarkBatchResult) -> None:
+    typer.echo(
+        f"Benchmark batch: total={result.batch.total_jobs} ok={result.batch.succeeded} "
+        f"failed={result.batch.failed} seconds={result.total_seconds:.2f}"
+    )
+    typer.echo(f"Batch summary file: {result.batch.summary_path}")
+    typer.echo(f"Benchmark report: {result.report_path}")

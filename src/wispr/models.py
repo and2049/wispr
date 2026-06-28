@@ -99,6 +99,29 @@ class BatchRunResult:
 
 
 @dataclass(frozen=True)
+class BenchmarkRunResult:
+    report_path: Path
+    command: dict[str, Any]
+    runtime: BackendRuntimeConfig
+    output_path: Path
+    debug_dir: Path | None
+    summary: AlignmentSummary
+    warnings: tuple[WisprWarning, ...]
+    stage_timings: dict[str, float]
+    total_seconds: float
+
+
+@dataclass(frozen=True)
+class BenchmarkBatchResult:
+    report_path: Path
+    command: dict[str, Any]
+    runtimes: dict[str, BackendRuntimeConfig]
+    batch: BatchRunResult
+    stage_timings: dict[str, float]
+    total_seconds: float
+
+
+@dataclass(frozen=True)
 class TranscriptWord:
     text: str
     start: float
